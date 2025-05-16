@@ -541,18 +541,17 @@ prettifyEpoch(epoch) {
     }
 
     Object.keys(requestHeaders).forEach((key) => {
-      const temp = key.toLowerCase()
-      if(metaDataSet.has(temp)){
+      if(metaDataSet.has(key)){
         highlightPaths.push({
             "highlightValue": {
-                "value": temp,
+                "value": key,
                 "wholeRow": true,
                 "className": "akto-decoded",
                 "highlight": true,
             },
             "responseCode": -1,
-            "header": temp,
-            "param": temp,
+            "header": key,
+            "param": key,
         })
       }
     })
@@ -594,6 +593,7 @@ prettifyEpoch(epoch) {
 
     let responseHeadersString = "{}"
     let responsePayloadString = "{}"
+    const metaDataSet = new Set(metadata.map((x) => x.toLowerCase()))
     if (message["request"]) {
       responseHeadersString = message["response"]["headers"] || "{}"
       responsePayloadString = message["response"]["body"] || "{}"
@@ -613,22 +613,19 @@ prettifyEpoch(epoch) {
       responsePayload = JSON.parse(responsePayloadString)
     } catch (e) {
       responsePayload = responsePayloadString
-    }
-    const metaDataSet = new Set(metadata.map((x) => x.toLowerCase()))
+    }    
 
     Object.keys(responseHeaders).forEach((key) => {
-      const temp = key.toLowerCase()
-      if(metaDataSet.has(temp)){
+      if(metaDataSet.has(key)){
         highlightPaths.push({
             "highlightValue": {
-                "value": temp,
+                "value": key,
                 "wholeRow": true,
                 "className": "akto-decoded",
                 "highlight": true,
             },
-            "responseCode": -1,
-            "header": temp,
-            "param": temp,
+            "header": key,
+            "param": key,
         })
       }
     })
@@ -992,7 +989,6 @@ mergeApiInfoAndApiCollection(listEndpoints, apiInfoList, idToName,apiInfoSeverit
           let responseCodesArr = apiInfoMap[key] ? apiInfoMap[key]?.responseCodes : [] 
           let discoveredTimestamp = apiInfoMap[key] ? (apiInfoMap[key].discoveredTimestamp || apiInfoMap[key].startTs) : 0
           let description = apiInfoMap[key] ? apiInfoMap[key]['description'] : ""
-
           ret[key] = {
               id: x.method + "###" + x.url + "###" + x.apiCollectionId + "###" + Math.random(),
               shadow: x.shadow ? x.shadow : false,
@@ -1007,7 +1003,7 @@ mergeApiInfoAndApiCollection(listEndpoints, apiInfoList, idToName,apiInfoSeverit
               apiCollectionId: x.apiCollectionId,
               last_seen: apiInfoMap[key] ? (this.prettifyEpoch(apiInfoMap[key]["lastSeen"])) : this.prettifyEpoch(x.startTs),
               lastSeenTs: apiInfoMap[key] ? apiInfoMap[key]["lastSeen"] : x.startTs,
-              detectedTs: discoveredTimestamp,
+              detectedTs: discoveredTimestamp === 0 ? x.startTs : discoveredTimestamp,
               changesCount: x.changesCount,
               changes: x.changesCount && x.changesCount > 0 ? (x.changesCount +" new parameter"+(x.changesCount > 1? "s": "")) : 'No new changes',
               added: this.prettifyEpoch(discoveredTimestamp),
@@ -1029,6 +1025,7 @@ mergeApiInfoAndApiCollection(listEndpoints, apiInfoList, idToName,apiInfoSeverit
               sources: apiInfoMap[key]?apiInfoMap[key]['sources']:{},
               description: description,
               descriptionComp: (<Box maxWidth="300px"><TooltipText tooltip={description} text={description}/></Box>),
+              lastTested: apiInfoMap[key] ? apiInfoMap[key]["lastTested"] : 0,
           }
 
       }
