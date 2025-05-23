@@ -1,5 +1,5 @@
 import LayoutWithTabs from "../../../components/layouts/LayoutWithTabs"
-import { Box, Button, Popover, Modal, Tooltip, VerticalStack, ActionList } from "@shopify/polaris"
+import { Box, Button, Popover, Modal, Tooltip, ActionList, VerticalStack, HorizontalStack, Tag, Text } from "@shopify/polaris"
 import FlyLayout from "../../../components/layouts/FlyLayout";
 import GithubCell from "../../../components/tables/cells/GithubCell";
 import SampleDataList from "../../../components/shared/SampleDataList";
@@ -15,10 +15,33 @@ import RunTest from "./RunTest";
 import PersistStore from "../../../../main/PersistStore";
 import values from "@/util/values";
 import gptApi from "../../../components/aktoGpt/api";
+import GraphMetric from '../../../components/GraphMetric'
 
 import { HorizontalDotsMinor, FileMinor } from "@shopify/polaris-icons"
 import LocalStore from "../../../../main/LocalStorageStore";
-import APICollectionDescriptionModal from "../../../components/shared/APICollectionDescriptionModal";
+import InlineEditableText from "../../../components/shared/InlineEditableText";
+import GridRows from "../../../components/shared/GridRows";
+import Dropdown from "../../../components/layouts/Dropdown";
+
+const statsOptions = [
+    {label: "15 minutes", value: 15*60},
+    {label: "30 minutes", value: 30*60},
+    {label: "1 hour", value: 60*60},
+    {label: "3 hours", value: 3*60*60},
+    {label: "6 hours", value: 6*60*60},
+    {label: "12 hours", value: 12*60*60},
+    {label: "1 day", value: 24*60*60},
+    {label: "7 days", value: 7*24*60*60}
+]
+
+function TechCard(props){
+    const {cardObj} = props;
+    return(
+        <Tag key={cardObj.id}>
+            <Text variant="bodyMd" as="span">{cardObj.name}</Text>
+        </Tag> 
+    )
+}
 
 function ApiDetails(props) {
 
@@ -38,24 +61,52 @@ function ApiDetails(props) {
     const setSelectedSampleApi = PersistStore(state => state.setSelectedSampleApi)
     const [disabledTabs, setDisabledTabs] = useState([])
     const [description, setDescription] = useState("")
-    const [showDescriptionModal, setShowDescriptionModal] = useState(false)
     const [headersWithData, setHeadersWithData] = useState([])
+    const [isEditingDescription, setIsEditingDescription] = useState(false)
+    const [editableDescription, setEditableDescription] = useState(description)
 
     const [useLocalSubCategoryData, setUseLocalSubCategoryData] = useState(false)
+    const [apiCallStats, setApiCallStats] = useState([]); 
+    const endTs = func.timeNow();
+    const [startTime, setStartTime] = useState(endTs - statsOptions[0].value)
 
     const statusFunc = getStatus ? getStatus : (x) => {
         try {
             if (paramList && paramList.length > 0 &&
                 paramList.filter(x => x?.nonSensitiveDataType).map(x => x.subTypeString).includes(x)) {
                 return "info"
-            }else if(headersWithData && headersWithData.length > 0 &&
-                headersWithData.filter(h => h.includes(x)).length > 0){
-                return "success"
             }
         } catch (e) {
 
         }
         return "warning"
+    }
+
+    const standardHeaders = new Set(transform.getStandardHeaderList())
+    const fetchStats = async(apiCollectionId, endpoint, method) => {
+        try {
+            await api.fetchApiCallStats(apiCollectionId, endpoint, method, startTime, endTs).then((res) => {
+                const transformedData = [
+                    {
+                        data: res.result.apiCallStats.sort((a,b) => b.ts - a.ts).map((item) => [item.ts * 60 * 1000, item.count]), // Access apiCallStats and convert seconds to milliseconds
+                        color: "",
+                        name: 'API Calls',
+                    },
+                ];
+                setApiCallStats(transformedData);
+                setDisabledTabs(prev => {
+                    const newDisabledTabs = [...prev.filter(tab => tab !== "api-call-stats")];
+                    if (!transformedData || transformedData.length === 0 || !transformedData[0]?.data || transformedData[0].data.length === 0) {
+                        newDisabledTabs.push("api-call-stats");
+                    }
+                    return newDisabledTabs;
+                });
+            })
+        } catch (error) {
+          console.error("Error fetching API call stats:", error);
+          setApiCallStats([]);
+          setDisabledTabs(prev => [...prev.filter(tab => tab !== "api-call-stats"), "api-call-stats"]);
+        }
     }
 
     const fetchData = async () => {
@@ -73,10 +124,11 @@ function ApiDetails(props) {
 
             setTimeout(() => {
                 setDescription(description == null ? "" : description)
+                setEditableDescription(description == null ? "" : description)
             }, 100)
             headers.forEach((header) => {
                 if (header.value === "description") {
-                    header.action = () => setShowDescriptionModal(true)
+                    header.action = () => setIsEditingDescription(true)
                 }
             })
 
@@ -136,32 +188,37 @@ function ApiDetails(props) {
                     setParamList(resp.data.params)
                 })
             })
+            fetchStats(apiCollectionId, endpoint, method)
+            // const queryPayload = dashboardFunc.getApiPrompts(apiCollectionId, endpoint, method)[0].prepareQuery();
+            // try{
+            //     if(isGptActive && window.STIGG_FEATURE_WISE_ALLOWED["AKTO_GPT_AI"] && window.STIGG_FEATURE_WISE_ALLOWED["AKTO_GPT_AI"]?.isGranted === true){
+            //         await gptApi.ask_ai(queryPayload).then((res) => {
+            //             if (res.response.responses && res.response.responses.length > 0) {
+            //                 const metaHeaderResp = res.response.responses.filter(x => !standardHeaders.has(x.split(" ")[0]))
+            //                 setHeadersWithData(metaHeaderResp)
+            //             }
+            //         }
+            //         ).catch((err) => {
+            //             console.error("Failed to fetch prompts:", err);
+            //         })
+            //     }
+            // }catch (e) {
+            // }
 
-            const queryPayload = dashboardFunc.getApiPrompts(apiCollectionId, endpoint, method)[0].prepareQuery();
-            try{
-                if(isGptActive && window.STIGG_FEATURE_WISE_ALLOWED["AKTO_GPT_AI"] && window.STIGG_FEATURE_WISE_ALLOWED["AKTO_GPT_AI"]?.isGranted === true){
-                    await gptApi.ask_ai(queryPayload).then((res) => {
-                        if (res.response.responses && res.response.responses.length > 0) {
-                            setHeadersWithData(res.response.responses)
-                        }
-                    }
-                    ).catch((err) => {
-                        console.error("Failed to fetch prompts:", err);
-                    })
-                }
-            }catch (e) {
-            }
-            
         }
     }
 
     const handleSaveDescription = async () => {
         const { apiCollectionId, endpoint, method } = apiDetail;
         
-        setShowDescriptionModal(false);
+        setIsEditingDescription(false);
         
-        await api.saveEndpointDescription(apiCollectionId, endpoint, method, description)
+        if(editableDescription === description) {
+            return
+        }
+        await api.saveEndpointDescription(apiCollectionId, endpoint, method, editableDescription)
             .then(() => {
+                setDescription(editableDescription);
                 func.setToast(true, false, "Description saved successfully");
             })
             .catch((err) => {
@@ -196,6 +253,12 @@ function ApiDetails(props) {
         fetchData();
     }, [apiDetail])
 
+    useEffect(() => {
+        const { apiCollectionId, endpoint, method } = apiDetail;
+        fetchStats(apiCollectionId,endpoint, method)
+        setApiCallStats([]);
+    },[startTime])
+
     function displayGPT() {
         setIsGptScreenActive(true)
         let requestObj = { key: "PARAMETER", jsonStr: sampleData[0]?.message, apiCollectionId: Number(apiDetail.apiCollectionId) }
@@ -227,6 +290,33 @@ function ApiDetails(props) {
 
     const isDemergingActive = isDeMergeAllowed();
 
+    const defaultChartOptions = (enableLegends) => {
+        const options = {
+          plotOptions: {
+            series: {
+              events: {
+                legendItemClick: function () {
+                  var seriesIndex = this.index;
+                  var chart = this.chart;
+                  var series = chart.series[seriesIndex];
+    
+                  chart.series.forEach(function (s) {
+                    s.hide();
+                  });
+                  series.show();
+    
+                  return false;
+                },
+              },
+            },
+          },
+        };
+        if (enableLegends) {
+          options['legend'] = { layout: 'vertical', align: 'right', verticalAlign: 'middle' };
+        }
+        return options;
+      };
+
     const SchemaTab = {
         id: 'schema',
         content: "Schema",
@@ -255,6 +345,7 @@ function ApiDetails(props) {
                 heading={"Sample values"}
                 minHeight={"35vh"}
                 vertical={true}
+                isAPISampleData={true}
                 metadata={headersWithData.map(x => x.split(" ")[0])}
             />
         </Box>,
@@ -271,14 +362,60 @@ function ApiDetails(props) {
         </Box>,
     }
 
+    const ApiCallStatsTab = {
+        id: 'api-call-stats',
+        content: 'API Call Stats',
+        component: 
+          <Box paddingBlockStart={'4'}>
+            <HorizontalStack align="end">
+                <Dropdown
+                    menuItems={statsOptions}
+                    initial={statsOptions[0].label}
+                    selected={(timeInSeconds) => {
+                        setStartTime((prev) => {
+                            if((endTs - timeInSeconds) === prev){
+                                return prev
+                            }else{
+                                return endTs - timeInSeconds
+                            }
+                        })
+                    }} />
+                </HorizontalStack>
+            {apiCallStats != undefined && apiCallStats.length > 0 && apiCallStats[0]?.data !== undefined && apiCallStats[0]?.data?.length > 0 ? (
+                <VerticalStack gap={"2"}>
+                    
+                <GraphMetric
+                    key={apiCallStats.length}
+                    data={apiCallStats}
+                    type='spline'
+                    color='#6200EA'
+                    areaFillHex='true'
+                    height='330'
+                    title='API Call Count'
+                    subtitle='Number of API calls over time'
+                    defaultChartOptions={defaultChartOptions(false)}
+                    backgroundColor='#ffffff'
+                    text='true'
+                    inputMetrics={[]}
+                />
+                </VerticalStack>
+            ) : (
+                <Text alignment="center" variant='bodyMd' as='p'>
+                  No API call data available in the given time range.
+                </Text>
+              )}
+          </Box>
+        
+      };
+
     const deMergeApis = () => {
-        const { apiCollectionId, endpoint, method } = apiDetail
         api.deMergeApi(apiCollectionId, endpoint, method).then((resp) => {
             func.setToast(true, false, "De-merging successful!!.")
             window.location.reload()
         })
     }
-    let newData = apiDetail
+
+    let newData = JSON.parse(JSON.stringify(apiDetail))
     newData['copyEndpoint'] = {
         method: apiDetail.method,
         endpoint: apiDetail.endpoint
@@ -294,15 +431,25 @@ function ApiDetails(props) {
     } catch (e){
     }
 
+    let gridData = [];
     try {
-        newData['headersInfo'] = [...new Set(headersWithData.map(x => x.split(" ").slice(1,x.length - 1).join(" ")))]
-    } catch (e) {
+        const techValues = [...new Set(headersWithData.filter(x => x.split(" ")[1].length < 50).map(x => x.split(" ")[1]))]
+        gridData = techValues.map((x) => {
+            return {
+                id: x,
+                name: x
+            }
+        })
+    } catch (error) {
+        
     }
 
+    newData['description'] = (isEditingDescription?<InlineEditableText textValue={editableDescription} setTextValue={setEditableDescription} handleSaveClick={handleSaveDescription} setIsEditing={setIsEditingDescription}  placeholder={"Add a brief description"} maxLength={64}/> : description )
+
     const headingComp = (
-        <div style={{ display: "flex", justifyContent: "space-between" }} key="heading">
-            <div style={{ display: "flex", flexDirection: "column"}}>
-                <div style={{ display: "flex", gap: '8px' }}>
+        <HorizontalStack align="space-between" wrap={false} key="heading">
+            <VerticalStack>
+                <HorizontalStack gap={"2"} wrap={false} >
                     <GithubCell
                         width="32vw"
                         data={newData}
@@ -311,9 +458,10 @@ function ApiDetails(props) {
                         isBadgeClickable={true}
                         badgeClicked={badgeClicked}
                     />
-                </div>
-            </div>
-            <div style={{ display: "flex", gap: '8px' }}>
+                </HorizontalStack>
+            </VerticalStack>
+            <VerticalStack gap="3" align="space-between">
+            <HorizontalStack gap={"1"} wrap={false} >
                 <RunTest
                     apiCollectionId={apiDetail["apiCollectionId"]}
                     endpoints={[apiDetail]}
@@ -339,23 +487,30 @@ function ApiDetails(props) {
                         <Popover.Pane fixed>
                             <ActionList
                                 items={[
-                                    isGptActive ? { content: "Ask AktoGPT", onAction: displayGPT } : null,
-                                    isDemergingActive ? { content: "De-merge", onAction: deMergeApis } : null,
+                                    isGptActive ? { content: "Ask AktoGPT", onAction: displayGPT } : {},
+                                    isDemergingActive ? { content: "De-merge", onAction: deMergeApis } : {},
                                 ]}
                             />
                         </Popover.Pane>
                     </Popover> : null
                 }
 
-            </div>
-        </div>
+            </HorizontalStack>
+            {headersWithData.length > 0 && 
+                <VerticalStack gap={"1"}>
+                    <Text variant="headingSm" color="subdued">Technologies used</Text>
+                    <GridRows verticalGap={"2"}horizontalGap={"1"} columns={3} items={gridData.slice(0,Math.min(gridData.length ,12))} CardComponent={TechCard} />
+                </VerticalStack>
+            }
+            </VerticalStack>
+        </HorizontalStack>
     )
 
     const components = [
         headingComp,
         <LayoutWithTabs
             key="tabs"
-            tabs={[ValuesTab, SchemaTab, DependencyTab]}
+            tabs={[ValuesTab, SchemaTab, ApiCallStatsTab, DependencyTab]}
             currTab={() => { }}
             disabledTabs={disabledTabs}
         />
@@ -369,15 +524,6 @@ function ApiDetails(props) {
                 setShow={setShowDetails}
                 components={components}
                 loading={loading}
-            />
-            <APICollectionDescriptionModal
-                showDescriptionModal={showDescriptionModal}
-                setShowDescriptionModal={setShowDescriptionModal}
-                title="API Endpoint Description"
-                handleSaveDescription={handleSaveDescription}
-                description={description}
-                setDescription={setDescription}
-                placeholder={"Add a brief description for this endpoint"}
             />
             <Modal large open={isGptScreenActive} onClose={() => setIsGptScreenActive(false)} title="Akto GPT">
                 <Modal.Section flush>

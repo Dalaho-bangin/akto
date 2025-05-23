@@ -84,6 +84,7 @@ import AuditLogs from "../dashboard/pages/settings/audit_logs/AuditLogs";
 import ThreatApiPage from "../dashboard/pages/threat_detection/ThreatApiPage";
 import ThreatActorPage from "../dashboard/pages/threat_detection/ThreatActorPage";
 import ThreatPolicyPage from "../dashboard/pages/threat_detection/ThreatPolicyPage";
+import ThreatConfigurationPage from "../dashboard/pages/threat_detection/ThreatConfigurationPage";
 import TestSuite from "../dashboard/pages/testing/testSuite/TestSuite";
 import TestsTablePage from "../dashboard/pages/test_editor/tests_table/TestsTablePage";
 import Splunk from "../dashboard/pages/settings/integrations/Splunk";
@@ -91,6 +92,8 @@ import F5Waf from "../dashboard/pages/settings/integrations/F5Waf";
 import AWSWaf from "../dashboard/pages/settings/integrations/AWSWaf";
 import AgentConfig from "../dashboard/pages/settings/integrations/AgentConfig";
 import AzureBoards from "../dashboard/pages/settings/integrations/AzureBoards";
+import CloudflareWaf from "../dashboard/pages/settings/integrations/CloudflareWaf";
+import UndoDemergedApis from "../dashboard/pages/settings/undo_demerged_apis/UndoDemergedApis";
 
 // if you add a component in a new path, please verify the search implementation in function -> 'getSearchItemsArr' in func.js
 
@@ -224,6 +227,10 @@ const router = createBrowserRouter([
                             {
                                 path: "threat-policy",
                                 element: <ThreatPolicyPage/>
+                            },
+                            {
+                                path: "threat-configuration",
+                                element: <ThreatConfigurationPage/>
                             }
                         ]
                     },
@@ -293,6 +300,10 @@ const router = createBrowserRouter([
                     {
                         path: "integrations/aws_waf",
                         element: <AWSWaf/>,
+                    },
+                    {
+                        path: "integrations/cloudflare_waf",
+                        element: <CloudflareWaf/>,
                     },
                     {
                         path: "integrations/agents",
@@ -406,6 +417,10 @@ const router = createBrowserRouter([
                     {
                         path: 'audit-logs',
                         element: <AuditLogs/>
+                    },
+                    {
+                        path: 'undo-demerge-apis',
+                        element: <UndoDemergedApis/>
                     }
                 ]
             },

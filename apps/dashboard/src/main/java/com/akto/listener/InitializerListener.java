@@ -7,6 +7,7 @@ import static com.akto.utils.Utils.deleteApis;
 import static com.akto.utils.billing.OrganizationUtils.syncOrganizationWithAkto;
 import static com.mongodb.client.model.Filters.eq;
 
+import com.akto.dao.metrics.MetricDataDao;
 import com.akto.dto.jobs.JobExecutorType;
 import com.akto.utils.crons.JobsCron;
 import java.io.BufferedReader;
@@ -50,6 +51,7 @@ import org.apache.commons.lang3.EnumUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.bson.conversions.Bson;
 import org.bson.types.ObjectId;
+import org.checkerframework.common.returnsreceiver.qual.This;
 import org.json.JSONObject;
 
 import com.akto.DaoInit;
@@ -76,6 +78,7 @@ import com.akto.dao.BillingLogsDao;
 import com.akto.dao.ConfigsDao;
 import com.akto.dao.CustomDataTypeDao;
 import com.akto.dao.DashboardLogsDao;
+import com.akto.dao.DataIngestionLogsDao;
 import com.akto.dao.DependencyFlowNodesDao;
 import com.akto.dao.DependencyNodeDao;
 import com.akto.dao.FilterSampleDataDao;
@@ -2427,6 +2430,10 @@ public class InitializerListener implements ServletContextListener {
                 if (runJobFunctions || runJobFunctionsAnyway) {
 
                     logger.debug("Starting init functions and scheduling jobs at " + now);
+                    JobsCron.instance.jobsScheduler(JobExecutorType.DASHBOARD);
+                    if (DashboardMode.isMetered()) {
+                        setupUsageScheduler();
+                    }
 
                     AccountTask.instance.executeTask(new Consumer<Account>() {
                         @Override
@@ -2435,41 +2442,40 @@ public class InitializerListener implements ServletContextListener {
                         }
                     }, "context-initializer-secondary");
 
-                    crons.trafficAlertsScheduler();
-                    // crons.insertHistoricalDataJob();
-                    // if(DashboardMode.isOnPremDeployment()){
-                    //     crons.insertHistoricalDataJobForOnPrem();
-                    // }
-                    if (DashboardMode.isMetered()) {
-                        setupUsageScheduler();
-                    }
-                    // trimCappedCollectionsJob();
-                    setUpPiiAndTestSourcesScheduler();
-                    setUpTrafficAlertScheduler();
-                    // setUpAktoMixpanelEndpointsScheduler();
-                    setUpDailyScheduler();
-                    setUpWebhookScheduler();
-                    cleanInventoryJobRunner();
-                    setUpDefaultPayloadRemover();
-                    setUpTestEditorTemplatesScheduler();
-                    setUpDependencyFlowScheduler();
-                    tokenGeneratorCron.tokenGeneratorScheduler();
-                    crons.deleteTestRunsScheduler();
-                    updateSensitiveInfoInApiInfo.setUpSensitiveMapInApiInfoScheduler();
-                    syncCronInfo.setUpUpdateCronScheduler();
-                    updateApiGroupsForAccounts();
-                    setUpUpdateCustomCollections();
-                    setUpFillCollectionIdArrayJob();
-                    setupAutomatedApiGroupsScheduler();
-                    /*
-                     * This is a temporary job.
-                     * TODO: Remove this once traffic pipeline is cleaned.
-                     */
-                    CleanInventory.cleanInventoryJobRunner();
-                    // CleanTestingJob.cleanTestingJobRunner();
+                    if(runJobFunctionsAnyway) {
+                        crons.trafficAlertsScheduler();
+                        // crons.insertHistoricalDataJob();
+                        // if(DashboardMode.isOnPremDeployment()){
+                        //     crons.insertHistoricalDataJobForOnPrem();
+                        // }
 
-                    MatchingJob.MatchingJobRunner();
-                    JobsCron.instance.jobsScheduler(JobExecutorType.DASHBOARD);
+                        // trimCappedCollectionsJob();
+                        setUpPiiAndTestSourcesScheduler();
+                        setUpTrafficAlertScheduler();
+                        // setUpAktoMixpanelEndpointsScheduler();
+                        setUpDailyScheduler();
+                        setUpWebhookScheduler();
+                        cleanInventoryJobRunner();
+                        setUpDefaultPayloadRemover();
+                        setUpTestEditorTemplatesScheduler();
+                        setUpDependencyFlowScheduler();
+                        tokenGeneratorCron.tokenGeneratorScheduler();
+                        crons.deleteTestRunsScheduler();
+                        updateSensitiveInfoInApiInfo.setUpSensitiveMapInApiInfoScheduler();
+                        syncCronInfo.setUpUpdateCronScheduler();
+                        updateApiGroupsForAccounts();
+                        setUpUpdateCustomCollections();
+                        setUpFillCollectionIdArrayJob();
+                        setupAutomatedApiGroupsScheduler();
+
+//                     * This is a temporary job.
+//                            * TODO: Remove this once traffic pipeline is cleaned.
+
+                        CleanInventory.cleanInventoryJobRunner();
+                        // CleanTestingJob.cleanTestingJobRunner();
+
+                        MatchingJob.MatchingJobRunner();
+                    }
 
                     int now2 = Context.now();
                     int diffNow = now2 - now;
@@ -2571,6 +2577,7 @@ public class InitializerListener implements ServletContextListener {
         clear(LogsDao.instance, LogsDao.maxDocuments);
         clear(PupeteerLogsDao.instance, PupeteerLogsDao.maxDocuments);
         clear(DashboardLogsDao.instance, DashboardLogsDao.maxDocuments);
+        clear(DataIngestionLogsDao.instance, DataIngestionLogsDao.maxDocuments);
         clear(TrafficMetricsDao.instance, TrafficMetricsDao.maxDocuments);
         clear(AnalyserLogsDao.instance, AnalyserLogsDao.maxDocuments);
         clear(ActivitiesDao.instance, ActivitiesDao.maxDocuments);
@@ -2583,6 +2590,7 @@ public class InitializerListener implements ServletContextListener {
         clear(SuspectSampleDataDao.instance, SuspectSampleDataDao.maxDocuments);
         clear(RuntimeMetricsDao.instance, RuntimeMetricsDao.maxDocuments);
         clear(ProtectionLogsDao.instance, ProtectionLogsDao.maxDocuments);
+        clear(MetricDataDao.instance, MetricDataDao.maxDocuments);
     }
 
     public static void clear(AccountsContextDao mCollection, int maxDocuments) {
@@ -2733,6 +2741,8 @@ public class InitializerListener implements ServletContextListener {
             String hotjarSiteId = organization.getHotjarSiteId();
             String planType = organization.getplanType();
             String trialMsg = organization.gettrialMsg();
+            String protectionTrialMsg = organization.getprotectionTrialMsg();
+            String agentTrialMsg = organization.getagentTrialMsg();
             String organizationId = organization.getId();
             /*
              * This ensures, we don't fetch feature wise allowed from akto too often.
@@ -2799,6 +2809,8 @@ public class InitializerListener implements ServletContextListener {
             hotjarSiteId = OrganizationUtils.fetchHotjarSiteId(metaData);
             planType = OrganizationUtils.fetchplanType(metaData);
             trialMsg = OrganizationUtils.fetchtrialMsg(metaData);
+            protectionTrialMsg = OrganizationUtils.fetchprotectionTrialMsg(metaData);
+            agentTrialMsg = OrganizationUtils.fetchagentTrialMsg(metaData);
             boolean expired = OrganizationUtils.fetchExpired(metaData);
             if (DashboardMode.isOnPremDeployment()) {
                 boolean telemetryEnabled = OrganizationUtils.fetchTelemetryEnabled(metaData);
@@ -2814,6 +2826,10 @@ public class InitializerListener implements ServletContextListener {
             organization.setplanType(planType);
 
             organization.settrialMsg(trialMsg);
+
+            organization.setprotectionTrialMsg(protectionTrialMsg);
+
+            organization.setagentTrialMsg(agentTrialMsg);
 
             organization.setGracePeriod(gracePeriod);
             organization.setFeatureWiseAllowed(featureWiseAllowed);
@@ -2838,6 +2854,8 @@ public class InitializerListener implements ServletContextListener {
                             Updates.set(Organization.HOTJAR_SITE_ID, hotjarSiteId),
                             Updates.set(Organization.PLAN_TYPE, planType),
                             Updates.set(Organization.TRIAL_MSG, trialMsg),
+                            Updates.set(Organization.AGENTTRIAL_MSG, agentTrialMsg),
+                            Updates.set(Organization.PROTECTIONTRIAL_MSG, protectionTrialMsg),
                             Updates.set(Organization.TEST_TELEMETRY_ENABLED, testTelemetryEnabled),
                             Updates.set(Organization.LAST_FEATURE_MAP_UPDATE, lastFeatureMapUpdate)));
 
@@ -3270,6 +3288,7 @@ public class InitializerListener implements ServletContextListener {
             );
         }
     }
+
 
     public static void setBackwardCompatibilities(BackwardCompatibility backwardCompatibility){
         if (DashboardMode.isMetered()) {
