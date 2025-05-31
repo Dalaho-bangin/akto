@@ -1,6 +1,11 @@
 package com.akto.util;
 
+import java.util.HashMap;
+
 import org.springframework.util.StringUtils;
+
+import com.akto.dto.agents.Model;
+import com.akto.dto.agents.ModelType;
 
 public class Constants {
     private Constants() {}
@@ -10,6 +15,7 @@ public class Constants {
     public static final String TIMESTAMP = "timestamp";
 
     public static final String AWS_REGION = "AWS_REGION";
+    public static final String AKTO_THREAT_DETECTION_CACHE_PREFIX = "akto:threat:schema:";
 
     public static final String AWS_ACCOUNT_ID = "AWS_ACCOUNT_ID";
 
@@ -39,8 +45,11 @@ public class Constants {
     public static final int LINGER_MS_KAFKA = StringUtils.hasLength(System.getenv("LINGER_MS_KAFKA")) ?  Integer.parseInt(System.getenv("LINGER_MS_KAFKA")) : 10000;
     public static final int MAX_WAIT_FOR_SLEEP = 3 * 60; // 3 minutes
     public static final String UNDERSCORE = "_";
+    public static final String AKTO_AGENT_NAME = "AKTO-AI-agents";
+    public static final Model AKTO_AGENT_MODEL = new Model(AKTO_AGENT_NAME, ModelType.AZURE_OPENAI, new HashMap<>());
 
     public final static String _AKTO = "AKTO";
 
     public final static String DEFAULT_AKTO_DASHBOARD_URL = "https://app.akto.io";
+
 }

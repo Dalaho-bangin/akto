@@ -1,10 +1,8 @@
 package com.akto.testing.workflow_node_executor;
 
-import static com.akto.runtime.utils.Utils.parseCookie;
 
 import java.io.File;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -16,8 +14,6 @@ import java.util.regex.Pattern;
 
 import com.akto.dto.testing.*;
 import com.akto.test_editor.execution.Memory;
-import com.akto.test_editor.filter.data_operands_impl.CookieExpireFilter;
-import com.akto.testing.TestExecutor;
 
 import org.apache.commons.lang3.StringUtils;
 import org.bson.conversions.Bson;
@@ -35,7 +31,6 @@ import com.akto.dto.type.KeyTypes;
 import com.akto.dto.type.RequestTemplate;
 import com.akto.log.LoggerMaker;
 import com.akto.log.LoggerMaker.LogDb;
-import com.akto.store.TestRolesCache;
 import com.akto.util.JSONUtils;
 import com.akto.util.RecordedLoginFlowUtil;
 import com.google.gson.Gson;
@@ -204,16 +199,16 @@ public class Utils {
         return token;
     }
 
-    public static WorkflowTestResult.NodeResult processNode(Node node, Map<String, Object> valuesMap, Boolean allowAllStatusCodes, boolean debug, List<TestingRunResult.TestLog> testLogs, Memory memory) {
+    public static WorkflowTestResult.NodeResult processNode(Node node, Map<String, Object> valuesMap, Boolean allowAllStatusCodes, boolean debug, List<TestingRunResult.TestLog> testLogs, Memory memory, boolean allowAllCombinations) {
         RecordedLoginFlowInput recordedLoginFlowInput = RecordedLoginInputDao.instance.findOne(new BasicDBObject());
-        return processNode(node, valuesMap, allowAllStatusCodes, debug, testLogs, memory, recordedLoginFlowInput);
+        return processNode(node, valuesMap, allowAllStatusCodes, debug, testLogs, memory, recordedLoginFlowInput, allowAllCombinations);
     }
 
     public static WorkflowTestResult.NodeResult processNode(Node node, Map<String, Object> valuesMap, Boolean allowAllStatusCodes, boolean debug, List<TestingRunResult.TestLog> testLogs, Memory memory, AuthMechanism authMechanism) {
-        return processNode(node, valuesMap, allowAllStatusCodes, debug, testLogs, memory, authMechanism.getRecordedLoginFlowInput());
+        return processNode(node, valuesMap, allowAllStatusCodes, debug, testLogs, memory, authMechanism.getRecordedLoginFlowInput(), false);
     }
 
-    public static WorkflowTestResult.NodeResult processNode(Node node, Map<String, Object> valuesMap, Boolean allowAllStatusCodes, boolean debug, List<TestingRunResult.TestLog> testLogs, Memory memory, RecordedLoginFlowInput recordedLoginFlowInput) {
+    public static WorkflowTestResult.NodeResult processNode(Node node, Map<String, Object> valuesMap, Boolean allowAllStatusCodes, boolean debug, List<TestingRunResult.TestLog> testLogs, Memory memory, RecordedLoginFlowInput recordedLoginFlowInput, boolean allowAllCombinations) {
         if (node.getWorkflowNodeDetails().getType() == WorkflowNodeDetails.Type.RECORDED) {
             return processRecorderNode(node, valuesMap, recordedLoginFlowInput);
         }
@@ -221,21 +216,21 @@ public class Utils {
             return processOtpNode(node, valuesMap);
         }
         else {
-            return processApiNode(node, valuesMap, allowAllStatusCodes, debug, testLogs, memory);
+            return processApiNode(node, valuesMap, allowAllStatusCodes, debug, testLogs, memory, allowAllCombinations);
         }
     }
 
-    public static WorkflowTestResult.NodeResult processApiNode(Node node, Map<String, Object> valuesMap, Boolean allowAllStatusCodes, boolean debug, List<TestingRunResult.TestLog> testLogs, Memory memory) {
+    public static WorkflowTestResult.NodeResult processApiNode(Node node, Map<String, Object> valuesMap, Boolean allowAllStatusCodes, boolean debug, List<TestingRunResult.TestLog> testLogs, Memory memory, boolean allowAllCombinations) {
         
-        NodeExecutorFactory nodeExecutorFactory = new NodeExecutorFactory();
+        NodeExecutorFactory nodeExecutorFactory = new NodeExecutorFactory(allowAllCombinations);
         NodeExecutor nodeExecutor = nodeExecutorFactory.getExecutor(node);
         return nodeExecutor.processNode(node, valuesMap, allowAllStatusCodes, debug, testLogs, memory);
     }
 
-    public static WorkflowTestResult.NodeResult executeNode(Node node, Map<String, Object> valuesMap,boolean debug, List<TestingRunResult.TestLog> testLogs, Memory memory) {
+    public static WorkflowTestResult.NodeResult executeNode(Node node, Map<String, Object> valuesMap,boolean debug, List<TestingRunResult.TestLog> testLogs, Memory memory, boolean allowAllCombinations) {
         WorkflowTestResult.NodeResult nodeResult;
         try {
-            nodeResult = Utils.processNode(node, valuesMap, true, debug, testLogs, memory);
+            nodeResult = Utils.processNode(node, valuesMap, true, debug, testLogs, memory, allowAllCombinations);
         } catch (Exception e) {
             ;
             List<String> testErrors = new ArrayList<>();
@@ -250,6 +245,7 @@ public class Utils {
     public static LoginFlowResponse runLoginFlow(WorkflowTest workflowTest, AuthMechanism authMechanism, LoginFlowParams loginFlowParams, String roleName) throws Exception {
         Graph graph = new Graph();
         graph.buildGraph(workflowTest);
+        int errorExpiryTime = Context.now() + 900; // 15 mins
 
         ArrayList<Object> responses = new ArrayList<Object>();
 
@@ -271,7 +267,7 @@ public class Utils {
                 }
                 nodeResult = processNode(node, valuesMap, allowAllStatusCodes, false, new ArrayList<>(), null, authMechanism);
             } catch (Exception e) {
-                ;
+                authMechanism.updateErrorCacheExpiryEpoch(errorExpiryTime);
                 List<String> testErrors = new ArrayList<>();
                 testErrors.add("Error Processing Node In Login Flow " + e.getMessage());
                 nodeResult = new WorkflowTestResult.NodeResult("{}", false, testErrors);
@@ -294,6 +290,7 @@ public class Utils {
             responses.add(respString.toString());
             
             if (nodeResult.getErrors().size() > 0) {
+                authMechanism.updateErrorCacheExpiryEpoch(errorExpiryTime);
                 return new LoginFlowResponse(responses, "Failed to process node " + node.getId(), false);
             } else {
                 if (loginFlowParams != null && loginFlowParams.getFetchValueMap()) {
@@ -310,6 +307,7 @@ public class Utils {
             try {
                 String value = executeCode(param.getValue(), valuesMap, false);
                 if (!param.getValue().equals(value) && value == null) {
+                    authMechanism.updateErrorCacheExpiryEpoch(errorExpiryTime);
                     return new LoginFlowResponse(responses, "auth param not found at specified path " + 
                     param.getValue(), false);
                 }
@@ -323,6 +321,7 @@ public class Utils {
                     try {
                         String[] parts = tempVal.split("\\.");
                         if (parts.length != 3) {
+                            authMechanism.updateErrorCacheExpiryEpoch(errorExpiryTime);
                             throw new IllegalArgumentException("Invalid JWT token format");
                         }
                         String payload = new String(Base64.getUrlDecoder().decode(parts[1]));
@@ -331,6 +330,7 @@ public class Utils {
                             newExpiryTime = Math.min(payloadJson.getInt("exp"), newExpiryTime);
                             
                         } else {
+                            authMechanism.updateErrorCacheExpiryEpoch(errorExpiryTime);
                             throw new IllegalArgumentException("JWT does not have an 'exp' claim");
                         }
                     } catch (Exception e) {
@@ -340,6 +340,7 @@ public class Utils {
 
                 calculatedAuthParams.add(new HardcodedAuthParam(param.getWhere(), param.getKey(), value, param.getShowHeader()));
             } catch(Exception e) {
+                authMechanism.updateErrorCacheExpiryEpoch(errorExpiryTime);
                 return new LoginFlowResponse(responses, "error resolving auth param " + param.getValue(), false);
             }
         }

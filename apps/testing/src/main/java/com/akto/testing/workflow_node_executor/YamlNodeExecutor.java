@@ -43,6 +43,7 @@ import com.akto.test_editor.execution.ExecutorAlgorithm;
 import com.akto.testing.ApiExecutor;
 import com.akto.testing.TestExecutor;
 import com.akto.testing.Utils;
+import com.akto.testing.kafka_utils.TestingConfigurations;
 import com.akto.util.Constants;
 import static com.akto.runtime.utils.Utils.convertOriginalReqRespToString;
 import com.google.gson.Gson;
@@ -52,6 +53,9 @@ public class YamlNodeExecutor extends NodeExecutor {
     
     private static final Gson gson = new Gson();
 
+    public YamlNodeExecutor(boolean allowAllCombinations) {
+        super(allowAllCombinations);
+    }
 
     public NodeResult processNode(Node node, Map<String, Object> varMap, Boolean allowAllStatusCodes, boolean debug, List<TestingRunResult.TestLog> testLogs, Memory memory) {
         List<String> testErrors = new ArrayList<>();
@@ -110,7 +114,7 @@ public class YamlNodeExecutor extends NodeExecutor {
         List<ExecutorNode> executorNodes = new ArrayList<>();
         boolean followRedirect = executionListBuilder.buildExecuteOrder(executorNode, executorNodes);
 
-        ExecutorAlgorithm executorAlgorithm = new ExecutorAlgorithm(sampleRawApi, varMap, authMechanism, customAuthTypes);
+        ExecutorAlgorithm executorAlgorithm = new ExecutorAlgorithm(sampleRawApi, varMap, authMechanism, customAuthTypes, this.allowAllCombinations);
         Map<Integer, ExecuteAlgoObj> algoMap = new HashMap<>();
         ExecutorSingleRequest singleReq = executorAlgorithm.execute(executorNodes, 0, algoMap, rawApis, false, 0, yamlNodeDetails.getApiInfoKey());
 
@@ -120,8 +124,14 @@ public class YamlNodeExecutor extends NodeExecutor {
         }
         //ExecutorSingleRequest singleReq = executor.buildTestRequest(executorNode, null, rawApis, varMap, authMechanism, customAuthTypes);
         //List<RawApi> testRawApis = singleReq.getRawApis();
-        TestingRunConfig testingRunConfig = new TestingRunConfig();
+        TestingRunConfig testingRunConfig = TestingConfigurations.getInstance().getTestingRunConfig();
         String logId = "";
+        if(memory != null) {
+            logId = memory.getLogId();
+            if(testingRunConfig == null) {
+                testingRunConfig = memory.getTestingRunConfig();
+            }
+        }
         List<TestResult> result = new ArrayList<>();
         boolean vulnerable = false;
 
