@@ -13,6 +13,7 @@ import com.akto.dao.SetupDao;
 import com.akto.dao.SingleTypeInfoDao;
 import com.akto.dao.TestingInstanceHeartBeatDao;
 import com.akto.dao.context.Context;
+import com.akto.dao.notifications.CustomWebhooksDao;
 import com.akto.dao.testing.TestingRunConfigDao;
 import com.akto.dao.testing.TestingRunDao;
 import com.akto.dao.testing.TestingRunResultDao;
@@ -26,6 +27,7 @@ import com.akto.dto.ApiInfo;
 import com.akto.dto.Setup;
 import com.akto.dto.billing.FeatureAccess;
 import com.akto.dto.billing.SyncLimit;
+import com.akto.dto.notifications.CustomWebhook;
 import com.akto.dto.test_run_findings.TestingRunIssues;
 import com.akto.dto.testing.CollectionWiseTestingEndpoints;
 import com.akto.dto.testing.CustomTestingEndpoints;
@@ -46,6 +48,7 @@ import com.akto.log.LoggerMaker;
 import com.akto.log.LoggerMaker.LogDb;
 import com.akto.mixpanel.AktoMixpanel;
 import com.akto.notifications.data.TestingAlertData;
+import com.akto.notifications.email.SendgridEmail;
 import com.akto.notifications.slack.APITestStatusAlert;
 import com.akto.notifications.slack.CustomTextAlert;
 import com.akto.notifications.slack.NewIssuesModel;
@@ -78,6 +81,7 @@ import com.mongodb.client.model.Sorts;
 import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.model.Updates;
 import com.mongodb.client.result.DeleteResult;
+import com.sendgrid.helpers.mail.Mail;
 import com.slack.api.Slack;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -546,7 +550,6 @@ public class Main {
                     loggerMaker.debugAndAddToDb("Found trrs " + trrs.getHexId() + (isTestingRunResultRerunCase ? " (rerun case) " : " ") + "for account: " + accountId);
                     testingRun = TestingRunDao.instance.findOne("_id", trrs.getTestingRunId());
                 }
-
                 if (testingRun == null) {
                     return;
                 }
@@ -558,7 +561,7 @@ public class Main {
                 if (!TestingInstanceHeartBeatDao.instance.isTestEligibleForInstance(testingRun.getHexId())) {
                     return;
                 }
-
+                loggerMaker.info("Testing run eligible for instance: " + testingRun.getHexId() + " for account: " + accountId + " at:" + Context.now() + " on: " + testingInstanceId);
                 TestingInstanceHeartBeatDao.instance.setTestingRunId(testingInstanceId, testingRun.getHexId());
 
                 if (testingRun.getState().equals(State.STOPPED)) {
@@ -642,7 +645,7 @@ public class Main {
                     setTestingRunConfig(testingRun, trrs);
                     boolean maxRetriesReached = false;
                     if (isSummaryRunning || isTestingRunRunning) {
-                        loggerMaker.debugAndAddToDb("TRRS or TR is in running state, checking if it should run it or not");
+                        loggerMaker.infoAndAddToDb("TRRS or TR is in running state, checking if it should run it or not");
                         TestingRunResultSummary testingRunResultSummary;
                         if (trrs != null) {
                             testingRunResultSummary = trrs;
@@ -680,7 +683,7 @@ public class Main {
                                             + " TR_ID:" + testingRun.getHexId(), LogDb.TESTING);
                                     return;
                                 } else {
-                                    loggerMaker.debugAndAddToDb("Test run was executed long ago, TRR_ID:"
+                                    loggerMaker.infoAndAddToDb("Test run was executed long ago, TRR_ID:"
                                             + testingRunResult.getHexId() + ", TRRS_ID:" + testingRunResultSummary.getHexId() 
                                             + (isTestingRunResultRerunCase ? " (rerun case) " : " ")
                                             + " TR_ID:" + testingRun.getHexId(), LogDb.TESTING);
@@ -713,7 +716,7 @@ public class Main {
                                             Updates.set(TestingRunResultSummary.COUNT_ISSUES, finalCountMap),
                                             Updates.set(TestingRunResultSummary.END_TIMESTAMP, Context.now())
                                         );
-                                        loggerMaker.debugAndAddToDb("Max retries level reached for TRR_ID: " + testingRun.getHexId(), LogDb.TESTING);
+                                        loggerMaker.infoAndAddToDb("Max retries level reached for TRR_ID: " + testingRun.getHexId(), LogDb.TESTING);
                                         maxRetriesReached = true;
                                     }
 
@@ -735,7 +738,7 @@ public class Main {
                                     GithubUtils.publishGithubComments(runResultSummary);
                                 }
                             } else {
-                                loggerMaker.debugAndAddToDb("No executions made for this test, will need to restart it, TRRS_ID:"
+                                loggerMaker.infoAndAddToDb("No executions made for this test, will need to restart it, TRRS_ID:"
                                     + testingRunResultSummary.getHexId() 
                                     + (isTestingRunResultRerunCase ? " (rerun case) " : " ")
                                     + " TR_ID:" + testingRun.getHexId(), LogDb.TESTING);
@@ -758,7 +761,7 @@ public class Main {
                                         Updates.set(TestingRunResultSummary.STATE, State.COMPLETED),
                                         Updates.set(TestingRunResultSummary.END_TIMESTAMP, Context.now())
                                     );
-                                    loggerMaker.debugAndAddToDb("Max retries level reached for TRR_ID: " + testingRun.getHexId(), LogDb.TESTING);
+                                    loggerMaker.infoAndAddToDb("Max retries level reached for TRR_ID: " + testingRun.getHexId(), LogDb.TESTING);
                                     maxRetriesReached = true;
                                 }
                                 TestingRunResultSummary summary = TestingRunResultSummariesDao.instance.updateOneNoUpsert(
@@ -1046,6 +1049,22 @@ public class Main {
 
         if(testingRun.getSendMsTeamsAlert() ){
             TeamsSender.sendAlert(accountId, alertData);
+        }
+
+        // check for webhooks here 
+        CustomWebhook customWebhook = CustomWebhooksDao.instance.findOne(
+            Filters.eq(CustomWebhook.WEBHOOK_TYPE, CustomWebhook.WebhookType.GMAIL.toString())
+        );
+
+        if(customWebhook != null && customWebhook.getActiveStatus().equals(CustomWebhook.ActiveStatus.ACTIVE)) {
+            try {
+                Mail mail = SendgridEmail.getInstance().buildTestingRunResultsEmail(alertData, customWebhook.getUrl(),customWebhook.getDashboardUrl() + "/dashboard/testing/"
+                + alertData.getViewOnAktoURL() + "#vulnerable" , customWebhook.getQueryParams());
+                loggerMaker.infoAndAddToDb("Sending Gmail alert for TestingRunResultSummary: " + summaryId + " to: " + customWebhook.getUrl());
+                SendgridEmail.getInstance().send(mail);
+            } catch (Exception e) {
+                loggerMaker.errorAndAddToDb(e, "Error sending Gmail alert for TestingRunResultSummary: " + summaryId);
+            }
         }
 
         AktoMixpanel aktoMixpanel = new AktoMixpanel();

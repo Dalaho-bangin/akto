@@ -20,8 +20,10 @@ import com.akto.dto.traffic_metrics.TrafficMetrics;
 import com.akto.dto.type.URLMethods.Method;
 import com.akto.dto.usage.MetricTypes;
 import com.akto.graphql.GraphQLUtils;
+import com.akto.jsonrpc.JsonRpcUtils;
 import com.akto.log.LoggerMaker;
 import com.akto.log.LoggerMaker.LogDb;
+import com.akto.mcp.McpRequestResponseUtils;
 import com.akto.runtime.APICatalogSync;
 import com.akto.runtime.Main;
 import com.akto.runtime.RuntimeUtil;
@@ -73,7 +75,6 @@ public class HttpCallParser {
             .build();
 
     private static final ConcurrentLinkedQueue<BasicDBObject> queue = new ConcurrentLinkedQueue<>();
-    private static final int MAX_ALLOWED_HTML_CONTENT = 1024 * 1024 ;
 
     public static void init() {
         trafficMetricsExecutor.scheduleAtFixedRate(new Runnable() {
@@ -90,6 +91,12 @@ public class HttpCallParser {
             }
         },0,5,TimeUnit.MINUTES);
     }
+
+    public HttpCallParser(String userIdentifier, int thresh, int sync_threshold_count, int sync_threshold_time, boolean fetchAllSTI, boolean skipMergingOnKnownStaticURLsForVersionedApis){
+        this(userIdentifier, thresh, sync_threshold_count, sync_threshold_time, fetchAllSTI);
+        apiCatalogSync.setSkipMergingOnKnownStaticURLsForVersionedApis(skipMergingOnKnownStaticURLsForVersionedApis);
+    }
+
     public HttpCallParser(String userIdentifier, int thresh, int sync_threshold_count, int sync_threshold_time, boolean fetchAllSTI) {
         last_synced = 0;
         this.sync_threshold_count = sync_threshold_count;
@@ -125,24 +132,32 @@ public class HttpCallParser {
         return null;
     }
 
-    public int createCollectionSimple(int vxlanId) {
+    public int createCollectionSimple(int vxlanId, boolean isMcpRequest) {
         UpdateOptions updateOptions = new UpdateOptions();
         updateOptions.upsert(true);
 
+        Bson updates = Updates.combine(
+            Updates.set(ApiCollection.VXLAN_ID, vxlanId),
+            Updates.setOnInsert("startTs", Context.now()),
+            Updates.setOnInsert("urls", new HashSet<>())
+        );
+
+        if (isMcpRequest) {
+            String tag = "MCP Server";
+            updates = Updates.combine(updates, Updates.setOnInsert("userSetEnvType", tag));
+        }
+
+
         ApiCollectionsDao.instance.getMCollection().updateOne(
                 Filters.eq("_id", vxlanId),
-                Updates.combine(
-                        Updates.set(ApiCollection.VXLAN_ID, vxlanId),
-                        Updates.setOnInsert("startTs", Context.now()),
-                        Updates.setOnInsert("urls", new HashSet<>())
-                ),
+                updates,
                 updateOptions
         );
         return vxlanId;
     }
 
 
-    public int createCollectionBasedOnHostName(int id, String host)  throws Exception {
+    public int createCollectionBasedOnHostName(int id, String host, boolean isMcpRequest)  throws Exception {
         FindOneAndUpdateOptions updateOptions = new FindOneAndUpdateOptions();
         updateOptions.upsert(true);
         // 3 cases
@@ -158,6 +173,11 @@ public class HttpCallParser {
                     Updates.setOnInsert("startTs", Context.now()),
                     Updates.setOnInsert("urls", new HashSet<>())
                 );
+
+                if (isMcpRequest) {
+                    String tag = "MCP Server";
+                    updates = Updates.combine(updates, Updates.setOnInsert("userSetEnvType", tag));
+                }
 
                 ApiCollectionsDao.instance.getMCollection().findOneAndUpdate(Filters.eq(ApiCollection.HOST_NAME, host), updates, updateOptions);
 
@@ -235,6 +255,10 @@ public class HttpCallParser {
     }
 
     public void syncFunction(List<HttpResponseParams> responseParams, boolean syncImmediately, boolean fetchAllSTI, AccountSettings accountSettings)  {
+        syncFunction(responseParams, syncImmediately, fetchAllSTI, accountSettings, false);
+    }
+
+    public void syncFunction(List<HttpResponseParams> responseParams, boolean syncImmediately, boolean fetchAllSTI, AccountSettings accountSettings, boolean skipAdvancedFilters)  {
         // USE ONLY filteredResponseParams and not responseParams
         List<HttpResponseParams> filteredResponseParams = responseParams;
         if (accountSettings != null && accountSettings.getDefaultPayloads() != null) {
@@ -249,7 +273,7 @@ public class HttpCallParser {
         if(accountSettings != null){
             shouldIgnoreOptionsApi = !accountSettings.getAllowOptionsAPIs();
         }
-        filteredResponseParams = filterHttpResponseParams(filteredResponseParams, redundantList, regexPattern, shouldIgnoreOptionsApi);
+        filteredResponseParams = filterHttpResponseParams(filteredResponseParams, redundantList, regexPattern, shouldIgnoreOptionsApi, skipAdvancedFilters);
         
         boolean makeApisCaseInsensitive = false;
         if(accountSettings != null){
@@ -462,6 +486,8 @@ public class HttpCallParser {
         }
 
         int vxlanId = httpResponseParam.requestParams.getApiCollectionId();
+
+        boolean isMcpRequest = McpRequestResponseUtils.isMcpRequest(httpResponseParam).getFirst();
         if (useHostCondition(hostName, httpResponseParam.getSource())) {
             hostName = hostName.toLowerCase();
             hostName = hostName.trim();
@@ -475,12 +501,12 @@ public class HttpCallParser {
                 int id = hostName.hashCode();
                 try {
 
-                    apiCollectionId = createCollectionBasedOnHostName(id, hostName);
+                    apiCollectionId = createCollectionBasedOnHostName(id, hostName, isMcpRequest);
 
                     hostNameToIdMap.put(key, apiCollectionId);
                 } catch (Exception e) {
                     loggerMaker.errorAndAddToDb("Failed to create collection for host : " + hostName, LogDb.RUNTIME);
-                    createCollectionSimple(vxlanId);
+                    createCollectionSimple(vxlanId, isMcpRequest);
                     hostNameToIdMap.put("null " + vxlanId, vxlanId);
                     apiCollectionId = httpResponseParam.requestParams.getApiCollectionId();
                 }
@@ -489,7 +515,7 @@ public class HttpCallParser {
         } else {
             String key = "null" + " " + vxlanId;
             if (!hostNameToIdMap.containsKey(key)) {
-                createCollectionSimple(vxlanId);
+                createCollectionSimple(vxlanId, isMcpRequest);
                 hostNameToIdMap.put(key, vxlanId);
             }
 
@@ -521,6 +547,11 @@ public class HttpCallParser {
     }
 
     public List<HttpResponseParams> filterHttpResponseParams(List<HttpResponseParams> httpResponseParamsList, List<String> redundantUrlsList, Pattern pattern, Boolean shouldIgnoreOptionsApi) {
+        return filterHttpResponseParams(httpResponseParamsList, redundantUrlsList, pattern, shouldIgnoreOptionsApi,
+                false);
+    }
+
+    public List<HttpResponseParams> filterHttpResponseParams(List<HttpResponseParams> httpResponseParamsList, List<String> redundantUrlsList, Pattern pattern, Boolean shouldIgnoreOptionsApi, boolean skipAdvancedFilters) {
         List<HttpResponseParams> filteredResponseParams = new ArrayList<>();
         int originalSize = httpResponseParamsList.size();
 
@@ -588,12 +619,14 @@ public class HttpCallParser {
 
             }
 
-            Pair<HttpResponseParams,FILTER_TYPE> temp = applyAdvancedFilters(httpResponseParam, executorNodesMap, apiCatalogSync.advancedFilterMap);
-            HttpResponseParams param = temp.getFirst();
-            if(param == null || temp.getSecond().equals(FILTER_TYPE.UNCHANGED)){
-                continue;
-            }else{
-                httpResponseParam = param;
+            if (!skipAdvancedFilters) {
+                Pair<HttpResponseParams, FILTER_TYPE> temp = applyAdvancedFilters(httpResponseParam, executorNodesMap, apiCatalogSync.advancedFilterMap);
+                HttpResponseParams param = temp.getFirst();
+                if (param == null || temp.getSecond().equals(FILTER_TYPE.UNCHANGED)) {
+                    continue;
+                } else {
+                    httpResponseParam = param;
+                }
             }
 
             int apiCollectionId = createApiCollectionId(httpResponseParam);
@@ -602,10 +635,12 @@ public class HttpCallParser {
 
             List<HttpResponseParams> responseParamsList = GraphQLUtils.getUtils().parseGraphqlResponseParam(httpResponseParam);
             if (responseParamsList.isEmpty()) {
-                filteredResponseParams.add(httpResponseParam);
+                HttpResponseParams jsonRpcResponse = JsonRpcUtils.parseJsonRpcResponse(httpResponseParam);
+                HttpResponseParams mcpResponseParams = McpRequestResponseUtils.parseMcpResponseParams(jsonRpcResponse);
+                filteredResponseParams.add(mcpResponseParams);
             } else {
                 filteredResponseParams.addAll(responseParamsList);
-                loggerMaker.infoAndAddToDb("Adding " + responseParamsList.size() + "new graphql endpoints in invetory",LogDb.RUNTIME);
+                loggerMaker.infoAndAddToDb("Adding " + responseParamsList.size() + "new graphql endpoints in inventory",LogDb.RUNTIME);
             }
 
             if (httpResponseParam.getSource().equals(HttpResponseParams.Source.MIRRORING)) {

@@ -1,8 +1,10 @@
 package com.akto.utils;
 
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
 
+import org.apache.commons.lang3.StringUtils;
 
 import com.akto.dao.ConfigsDao;
 import com.akto.dao.context.Context;
@@ -10,6 +12,7 @@ import com.akto.dto.Config;
 import com.akto.dto.Config.OktaConfig;
 import com.akto.util.Constants;
 import com.akto.utils.sso.SsoUtils;
+import com.mongodb.BasicDBObject;
 
 public class OktaLogin {
     public static final int PROBE_PERIOD_IN_SECS = 60;
@@ -56,11 +59,15 @@ public class OktaLogin {
 
         String queryString = SsoUtils.getQueryString(paramMap);
 
-        String authUrl = "https://" + oktaConfig.getOktaDomainUrl() + "/oauth2/" + oktaConfig.getAuthorisationServerId() + "/v1/authorize?" + queryString;
+        String authUrl = "https://" + oktaConfig.getOktaDomainUrl() + "/oauth2/";
+        if(!oktaConfig.getAuthorisationServerId().isEmpty()){
+            authUrl += oktaConfig.getAuthorisationServerId();
+        }
+        authUrl += "/v1/authorize?" + queryString;
         return authUrl;
     }
 
-    public static String getAuthorisationUrl(String email) {
+    public static String getAuthorisationUrl(String email, String signUpEmailId, String signupInvitationCode) {
         OktaConfig oktaConfig = Config.getOktaConfig(email);
 
         Map<String, String> paramMap = new HashMap<>();
@@ -68,11 +75,24 @@ public class OktaLogin {
         paramMap.put("redirect_uri",oktaConfig.getRedirectUri());
         paramMap.put("response_type", "code");
         paramMap.put("scope", "openid%20email%20profile");
-        paramMap.put("state", String.valueOf(oktaConfig.getAccountId()));
+        BasicDBObject stateObj = new BasicDBObject("accountId", String.valueOf(oktaConfig.getAccountId()));
+        String stateVal = String.valueOf(oktaConfig.getAccountId());
+
+        if(!StringUtils.isEmpty(signupInvitationCode) && !StringUtils.isEmpty(signUpEmailId)) {
+            stateObj.append("signupInvitationCode", signupInvitationCode)
+                    .append("signupEmailId", signUpEmailId);
+        }
+        stateVal = stateObj.toJson();
+        paramMap.put("state", Base64.getEncoder().encodeToString(stateVal.getBytes()));
+        
 
         String queryString = SsoUtils.getQueryString(paramMap);
 
-        String authUrl = "https://" + oktaConfig.getOktaDomainUrl() + "/oauth2/" + oktaConfig.getAuthorisationServerId() + "/v1/authorize?" + queryString;
+        String authUrl = "https://" + oktaConfig.getOktaDomainUrl() + "/oauth2/";
+        if(!oktaConfig.getAuthorisationServerId().isEmpty()){
+            authUrl += oktaConfig.getAuthorisationServerId();
+        }
+        authUrl += "/v1/authorize?" + queryString;
         return authUrl;
     }
 
