@@ -24,13 +24,22 @@ public class TestRoles {
     @BsonIgnore
     private EndpointLogicalGroup endpointLogicalGroup;
 
+    public static final String CREATED_BY = "createdBy";
     private String createdBy;
     private int createdTs;
     public static final String LAST_UPDATED_TS = "lastUpdatedTs";
     private int lastUpdatedTs;
     private List<Integer> apiCollectionIds;
+
+    public static final String SCOPE_ROLES = "scopeRoles";
+    private List<String> scopeRoles;
+
+    public static final String LAST_UPDATED_BY = "lastUpdatedBy";
+    private String lastUpdatedBy;
+    
     public TestRoles(){}
-    public TestRoles(ObjectId id, String name, ObjectId endpointLogicalGroupId, List<AuthWithCond> authWithCondList, String createdBy, int createdTs, int lastUpdatedTs, List<Integer> apiCollectionIds) {
+    
+    public TestRoles(ObjectId id, String name, ObjectId endpointLogicalGroupId, List<AuthWithCond> authWithCondList, String createdBy, int createdTs, int lastUpdatedTs, List<Integer> apiCollectionIds, String lastUpdatedBy) {
         this.id = id;
         this.name = name;
         this.endpointLogicalGroupId = endpointLogicalGroupId;
@@ -39,6 +48,7 @@ public class TestRoles {
         this.createdTs = createdTs;
         this.lastUpdatedTs = lastUpdatedTs;
         this.apiCollectionIds = apiCollectionIds;
+        this.lastUpdatedBy = lastUpdatedBy;
 	}
     
     public EndpointLogicalGroup fetchEndpointLogicalGroup() {
@@ -183,5 +193,21 @@ public class TestRoles {
 
     public void setApiCollectionIds(List<Integer> apiCollectionIds) {
         this.apiCollectionIds = apiCollectionIds;
+    }
+
+    public List<String> getScopeRoles() {
+        return scopeRoles;
+    }   
+
+    public void setScopeRoles(List<String> scopeRoles) {
+        this.scopeRoles = scopeRoles;
+    }
+
+    public String getLastUpdatedBy() {
+        return lastUpdatedBy;
+    }
+
+    public void setLastUpdatedBy(String lastUpdatedBy) {
+        this.lastUpdatedBy = lastUpdatedBy;
     }
 }

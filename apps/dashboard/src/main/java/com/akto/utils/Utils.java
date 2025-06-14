@@ -1,6 +1,5 @@
 package com.akto.utils;
 
-import com.akto.action.ExportSampleDataAction;
 import com.akto.dao.ThirdPartyAccessDao;
 import com.akto.dao.TrafficInfoDao;
 import com.akto.dao.context.Context;
@@ -17,10 +16,7 @@ import com.akto.dto.HttpResponseParams;
 import com.akto.dto.OriginalHttpRequest;
 import com.akto.dto.OriginalHttpResponse;
 import com.akto.dto.dependency_flow.DependencyFlow;
-import com.akto.dto.testing.GenericTestResult;
-import com.akto.dto.testing.MultiExecTestResult;
-import com.akto.dto.testing.TestResult;
-import com.akto.dto.testing.TestingRunResult;
+import com.akto.dto.testing.*;
 import com.akto.dto.third_party_access.Credential;
 import com.akto.dto.third_party_access.PostmanCredential;
 import com.akto.dto.third_party_access.ThirdPartyAccess;
@@ -43,7 +39,6 @@ import com.mongodb.client.model.Filters;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
-
 import java.io.File;
 import java.net.MalformedURLException;
 import java.net.URISyntaxException;
@@ -51,7 +46,6 @@ import java.net.URL;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
 import javax.servlet.http.HttpServletRequest;
 
 import static com.akto.dto.RawApi.convertHeaders;
@@ -211,7 +205,7 @@ public class Utils {
         return sb.toString();
     }
     
-    public static Pair<Map<String, String>, List<FileUploadError>> convertApiInAktoFormat(JsonNode apiInfo, Map<String, String> variables, String accountId, boolean allowReplay, Map<String, String> authMap) {
+    public static Pair<Map<String, String>, List<FileUploadError>> convertApiInAktoFormat(JsonNode apiInfo, Map<String, String> variables, String accountId, boolean allowReplay, Map<String, String> authMap, String miniTestingName) {
         Pair<Map<String, String>, List<String>> resp;
         List<FileUploadError> errors = new ArrayList<>();
         try {
@@ -267,7 +261,12 @@ public class Utils {
 
                     OriginalHttpRequest originalHttpRequest = new OriginalHttpRequest(result.get("path"), "", result.get("method"), requestPayload, reqHeadersListMap , "http");
                     try {
-                        OriginalHttpResponse res = ApiExecutor.sendRequest(originalHttpRequest, true, null, false, new ArrayList<>());
+                        OriginalHttpResponse res = null;
+                        if (StringUtils.isEmpty(miniTestingName)) {
+                            res = ApiExecutor.sendRequest(originalHttpRequest, true, null, false, new ArrayList<>());
+                        } else {
+                            res = com.akto.testing.Utils.runRequestOnHybridTesting(originalHttpRequest);
+                        }
                         responseHeadersString = convertHeaders(res.getHeaders());
                         responsePayload =  res.getBody();
                         statusCode =  res.getStatusCode()+"";
@@ -287,7 +286,7 @@ public class Utils {
             } else {
                 JsonNode respHeaders = response.get("header");
                 Map<String, String> responseHeadersMap = new HashMap<>();
-                if (respHeaders == null) {
+                if (respHeaders != null) {
                     responseHeadersMap = getHeaders((ArrayNode) response.get("header"), variables);
                 }
 
@@ -457,6 +456,18 @@ public class Utils {
     }
 
     public static void pushDataToKafka(int apiCollectionId, String topic, List<String> messages, List<String> errors, boolean skipKafka, boolean takeFromMsg) throws Exception {
+        pushDataToKafka(apiCollectionId, topic, messages, errors, skipKafka, takeFromMsg, false, false);
+    }
+    /*
+    * this function is used primarily for non-automated traffic collection, like
+    * postman, har and openAPI.
+    * Thus, we can skip advanced traffic filters for these cases.
+    */
+
+    public static void pushDataToKafka(int apiCollectionId, String topic, List<String> messages, List<String> errors, boolean skipKafka, boolean takeFromMsg, boolean skipAdvancedFilters) throws Exception {
+        pushDataToKafka(apiCollectionId, topic, messages, errors, skipKafka, takeFromMsg, skipAdvancedFilters, false);
+    }
+    public static void pushDataToKafka(int apiCollectionId, String topic, List<String> messages, List<String> errors, boolean skipKafka, boolean takeFromMsg, boolean skipAdvancedFilters, boolean skipMergingOnKnownStaticURLsForVersionedApis) throws Exception {
         List<HttpResponseParams> responses = new ArrayList<>();
         for (String message: messages){
             int messageLimit = (int) Math.round(0.8 * KafkaListener.BATCH_SIZE_CONFIG);
@@ -494,7 +505,7 @@ public class Utils {
             AccountHTTPCallParserAktoPolicyInfo info = RuntimeListener.accountHTTPParserMap.get(accountId);
             if (info == null) { // account created after docker run
                 info = new AccountHTTPCallParserAktoPolicyInfo();
-                HttpCallParser callParser = new HttpCallParser("userIdentifier", 1, 1, 1, false);
+                HttpCallParser callParser = new HttpCallParser("userIdentifier", 1, 1, 1, false, skipMergingOnKnownStaticURLsForVersionedApis);
                 info.setHttpCallParser(callParser);
                 // info.setResourceAnalyser(new ResourceAnalyser(300_000, 0.01, 100_000, 0.01));
                 RuntimeListener.accountHTTPParserMap.put(accountId, info);
@@ -504,12 +515,14 @@ public class Utils {
             responses = com.akto.runtime.Main.filterBasedOnHeaders(responses, accountSettings);
 
             boolean makeApisCaseInsensitive = false;
+            boolean mergeUrlsOnVersions = false;
             if(accountSettings != null){
                 makeApisCaseInsensitive = accountSettings.getHandleApisCaseInsensitive();
+                mergeUrlsOnVersions = accountSettings.isAllowMergingOnVersions();
             }
 
-            info.getHttpCallParser().syncFunction(responses, true, false, accountSettings);
-            APICatalogSync.mergeUrlsAndSave(apiCollectionId, true, false, info.getHttpCallParser().apiCatalogSync.existingAPIsInDb, makeApisCaseInsensitive);
+            info.getHttpCallParser().syncFunction(responses, true, false, accountSettings, skipAdvancedFilters);
+            APICatalogSync.mergeUrlsAndSave(apiCollectionId, true, false, info.getHttpCallParser().apiCatalogSync.existingAPIsInDb, makeApisCaseInsensitive, mergeUrlsOnVersions);
             info.getHttpCallParser().apiCatalogSync.buildFromDB(false, false);
             APICatalogSync.updateApiCollectionCount(info.getHttpCallParser().apiCatalogSync.getDbState(apiCollectionId), apiCollectionId);
 //            for (HttpResponseParams responseParams: responses)  {
