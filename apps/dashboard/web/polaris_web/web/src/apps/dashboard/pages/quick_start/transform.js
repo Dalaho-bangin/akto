@@ -275,6 +275,24 @@ const openApiObj = {
     key: "OPENAPI"
 }
 
+const wsdlApiObj = {
+    icon: '/public/xml_api.svg',
+    label: 'SOAP API',
+    text: 'Upload WSDL file using Postman to Akto to create an API inventory.',
+    docsUrl: 'https://docs.akto.io/traffic-connector/manual/wsdl',
+    component: <PostmanSource/>,
+    key: "SOAPAPI"
+}
+
+const graphqlApiIObj = {
+    icon: '/public/graphql_api.svg',
+    label: 'GraphQL Schema',
+    text: 'Upload GraphQL Schema file using Postman to Akto to create an API inventory.',
+    docsUrl: 'https://docs.akto.io/traffic-connector/manual/graphql',
+    component: <PostmanSource/>,
+    key: "GRAPHQLAPI"
+}
+
 const tcpObj = {
     icon: '/public/TCP.svg',
     label: 'TCP Agent',
@@ -347,6 +365,15 @@ const awsApiGatewayObj = {
     docsUrl: 'https://docs.akto.io/traffic-connector/aws-services/aws-api-gateway',
     component: <AddOnComponenet/>,
     key: "AWS_API_GATEWAY",
+}
+
+const awsLambdaObj = {
+    icon: '/public/aws_lambda.svg',
+    label: "AWS Lambda",
+    text: "Akto AWS Lambda setup is recommended if you are using AWS Lambda functions to handle your APIs.",
+    docsUrl: 'https://docs.akto.io/traffic-connector/aws-services/connect-akto-with-aws-lambda',
+    component: <AddOnComponenet/>,
+    key: "AWS_LAMBDA",
 }
 
 const ecsObj = {
@@ -1024,7 +1051,7 @@ const quickStartFunc = {
 
         // AWS Services
         const awsServices = [
-            awsApiGatewayObj, eksObj, fargateObj, beanStalkObj, ecsObj
+            awsApiGatewayObj, awsLambdaObj, eksObj, fargateObj, beanStalkObj, ecsObj
         ];
 
         // GCP Services
@@ -1039,7 +1066,7 @@ const quickStartFunc = {
 
         // Manual
         const manual = [
-            burpObj, postmanObj, harFileUploadObj, openApiObj
+            burpObj, postmanObj, harFileUploadObj, openApiObj, wsdlApiObj, graphqlApiIObj
         ];
 
         // Akto SDK
@@ -1085,7 +1112,7 @@ const quickStartFunc = {
             gcpObj, kubernetesObj, fargateObj, nginxObj, burpObj, postmanObj,
             openApiObj, beanStalkObj, eksObj, dockerObj, envoyObj,
             harFileUploadObj, kongObj, tcpObj, mirroringObj, hybridSaasObj, apiInventoryFromSourceCodeObj,
-            ebpfObj, ebpfMTLSObj, istioObj, pythonObj, awsApiGatewayObj,
+            ebpfObj, ebpfMTLSObj, istioObj, pythonObj, awsApiGatewayObj, awsLambdaObj,
             apigeeObj, azureObj, cloudflareObj, f5Obj, goObj, haproxyObj, javaObj, kongmeshObj, layer7Obj, nodejsObj, openshiftObj, threescaleObj, githubObj, gitlabObj, bitbucketObj
         ]
         return connectorsList

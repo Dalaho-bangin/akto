@@ -210,7 +210,18 @@ export default {
         const resp = await request({
             url: '/api/updateTestRoles',
             method: 'post',
-            data: { roleName, andConditions, orConditions }
+            data: { roleName, andConditions, orConditions}
+        })
+        return resp        
+    },
+    async saveTestRoleMeta(roleName, scopeRoles) {
+        if(scopeRoles && scopeRoles.length === 0){
+            return;
+        }
+        const resp = await request({
+            url: '/api/saveTestRoleMeta',
+            method: 'post',
+            data: { roleName, scopeRoles}
         })
         return resp        
     },
@@ -240,11 +251,11 @@ export default {
         return resp
     },
 
-    async getCountsMap(startTimestamp, endTimestamp){
+    async getCountsMap(startTimestamp, endTimestamp, filters){
         return await request({
             url: '/api/getAllTestsCountMap',
             method: 'post',
-            data: {startTimestamp, endTimestamp}
+            data: {startTimestamp, endTimestamp, filters}
         })
     },
 
@@ -564,6 +575,27 @@ export default {
             url: '/api/fetchMiniTestingServiceNames',
             method: 'post',
             data: {}
+        })
+    },
+    updateIssueDescription(issueId, description) {
+        return request({
+            url: '/api/updateIssueDescription',
+            method: 'post',
+            data: { issueId, description }
+        })
+    },
+    fetchCommonTestTemplate() {
+        return request({
+            url: '/api/fetchCommonTestTemplate',
+            method: 'post',
+            data: {}
+        })
+    },
+    saveCommonTestTemplate(content) {
+        return request({
+            url: '/api/saveCommonTestTemplate',
+            method: 'post',
+            data: { content }
         })
     }
 }
