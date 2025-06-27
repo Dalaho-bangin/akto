@@ -1,10 +1,12 @@
 package com.akto.testing;
 
 import com.akto.MongoBasedTest;
+import com.akto.crons.GetRunningTestsStatus;
 import com.akto.dao.SampleDataDao;
 import com.akto.dao.context.Context;
 import com.akto.dto.ApiInfo;
 import com.akto.dto.OriginalHttpRequest;
+import com.akto.dto.RawApi;
 import com.akto.dto.testing.GenericTestResult;
 import com.akto.dto.testing.TestResult;
 import com.akto.dto.testing.TestingRunResult;
@@ -12,7 +14,6 @@ import com.akto.dto.traffic.Key;
 import com.akto.dto.traffic.SampleData;
 import com.akto.dto.type.URLMethods;
 import com.akto.store.SampleMessageStore;
-import com.akto.store.TestingUtil;
 import org.apache.commons.lang3.StringUtils;
 import org.bson.types.ObjectId;
 import org.junit.Test;
@@ -20,11 +21,20 @@ import org.junit.Test;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 public class TestExecutorTest extends MongoBasedTest {
 
@@ -87,4 +97,86 @@ public class TestExecutorTest extends MongoBasedTest {
         testFindHostUtil("https://docs.akto.io:8080/readme", "https://docs.akto.io:8080","docs.akto.io");
         testFindHostUtil("http://docs.akto.io/readme", "http://docs.akto.io","docs.akto.io");
     }
+
+    @Test
+    public void testFilterJsonRpcPayload() throws Exception {
+        TestExecutor testExecutor = new TestExecutor();
+
+        // Case 1: Valid JSON-RPC 2.0 payload with method name
+        RawApi rawApi = new RawApi();
+        rawApi.setRequest(new OriginalHttpRequest());
+        rawApi.getRequest().setBody("{\"jsonrpc\": \"2.0\", \"method\": \"testMethod\", \"params\": {}}");
+        rawApi.getRequest().setUrl("http://example.com/testMethod");
+        Map<String, List<String>> headers = new HashMap<>();
+        headers.put("content-type", Collections.singletonList("application/json"));
+        rawApi.getRequest().setHeaders(headers);
+        ApiInfo.ApiInfoKey apiInfoKey = new ApiInfo.ApiInfoKey(0, "http://example.com/testMethod", URLMethods.Method.POST);
+
+        boolean result = testExecutor.filterJsonRpcPayload(rawApi, apiInfoKey);
+        assertEquals(true, result);
+        assertEquals("http://example.com", apiInfoKey.getUrl());
+        assertEquals("http://example.com", rawApi.getRequest().getUrl());
+
+        // Case 2: Invalid JSON-RPC version
+        rawApi.getRequest().setBody("{\"jsonrpc\": \"1.0\", \"method\": \"testMethod\", \"params\": {}}");
+        result = testExecutor.filterJsonRpcPayload(rawApi, apiInfoKey);
+        assertEquals(false, result);
+
+        // Case 3: Missing method name in the payload
+        rawApi.getRequest().setBody("{\"jsonrpc\": \"2.0\", \"params\": {}}");
+        result = testExecutor.filterJsonRpcPayload(rawApi, apiInfoKey);
+        assertEquals(false, result);
+
+        // Case 4: URL does not contain the method name
+        rawApi.getRequest().setBody("{\"jsonrpc\": \"2.0\", \"method\": \"anotherMethod\", \"params\": {}}");
+        rawApi.getRequest().setUrl("http://example.com/testMethod");
+        apiInfoKey.setUrl("http://example.com/testMethod");
+        result = testExecutor.filterJsonRpcPayload(rawApi, apiInfoKey);
+        assertEquals(true, result);
+        assertEquals("http://example.com/testMethod", apiInfoKey.getUrl());
+    }
+
+    @Test
+    public void testNoInfiniteLoopWhenTestsFinish() throws Exception {
+        // Setup inputs
+        AtomicInteger totalTestsToBeExecuted = new AtomicInteger(0);
+        int totalTestsToBeExecutedCount = 10;
+        long maxRunTime = 60 * 1000; // 1 min max wait
+
+        CountDownLatch latch = new CountDownLatch(1);
+
+        AtomicInteger tempVal = new AtomicInteger(1);
+
+        // Set up the thread to simulate the actual logic
+        Thread thread = new Thread(() -> {
+            try {
+                int waitTs = Context.now();
+                int prevCalcTime = Context.now();
+                int lastCheckedCount = 0;
+                tempVal.set(2);
+                while (latch.getCount() > 0 && (Context.now() - waitTs < maxRunTime)) {
+                    tempVal.set(3);
+                    if (lastCheckedCount != totalTestsToBeExecuted.get()) {
+                        lastCheckedCount = totalTestsToBeExecuted.get();
+                        prevCalcTime = Context.now();
+                    } else {
+                        int relaxingTime = Utils.getRelaxingTimeForTests(totalTestsToBeExecuted, totalTestsToBeExecutedCount);
+                        if (relaxingTime == 0 || (Context.now() - prevCalcTime > relaxingTime)) {
+                            break;
+                        }
+                    }
+                    Thread.sleep(100); // shorter sleep for faster test
+                }
+            } catch (InterruptedException e) {
+                fail("Thread interrupted unexpectedly");
+            }
+        });
+
+        thread.start();
+        thread.join(); // wait for the loop to finish
+
+        // If the test reaches this point without timeout, it's a pass
+        assertEquals(3, tempVal.get());
+    }
 }
+

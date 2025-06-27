@@ -7,6 +7,7 @@ import static com.akto.utils.Utils.deleteApis;
 import static com.akto.utils.billing.OrganizationUtils.syncOrganizationWithAkto;
 import static com.mongodb.client.model.Filters.eq;
 
+import com.akto.dao.metrics.MetricDataDao;
 import com.akto.dto.jobs.JobExecutorType;
 import com.akto.utils.crons.JobsCron;
 import java.io.BufferedReader;
@@ -50,6 +51,7 @@ import org.apache.commons.lang3.EnumUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.bson.conversions.Bson;
 import org.bson.types.ObjectId;
+import org.checkerframework.common.returnsreceiver.qual.This;
 import org.json.JSONObject;
 
 import com.akto.DaoInit;
@@ -76,6 +78,7 @@ import com.akto.dao.BillingLogsDao;
 import com.akto.dao.ConfigsDao;
 import com.akto.dao.CustomDataTypeDao;
 import com.akto.dao.DashboardLogsDao;
+import com.akto.dao.DataIngestionLogsDao;
 import com.akto.dao.DependencyFlowNodesDao;
 import com.akto.dao.DependencyNodeDao;
 import com.akto.dao.FilterSampleDataDao;
@@ -411,11 +414,15 @@ public class InitializerListener implements ServletContextListener {
     }
 
     public void updateApiGroupsForAccounts() {
-        List<Integer> accounts = new ArrayList<>(Arrays.asList(1_000_000, 1718042191, 1664578207, 1693004074, 1685916748));
-        for (int account : accounts) {
-            Context.accountId.set(account);
-            createFirstUnauthenticatedApiGroup();
-        }
+        List<Integer> accounts = new ArrayList<>(Arrays.asList(1_000_000, 1718042191, 1664578207, 1693004074, 1685916748, 1736798101));
+        scheduler.scheduleAtFixedRate(new Runnable() {
+            public void run() {
+                for (int account : accounts) {
+                    Context.accountId.set(account);
+                    createFirstUnauthenticatedApiGroup();
+                }
+            }
+        }, 0, 4, TimeUnit.HOURS);
     }
 
     private static void raiseMixpanelEvent() {
@@ -1071,14 +1078,18 @@ public class InitializerListener implements ServletContextListener {
          * triggered only on test complete not periodically.
          * 
          * TRAFFIC_ALERTS type webhooks have a separate cron.
+         * PENDING_TESTS_ALERTS type webhooks have a separate job
          */
+
 
         if (webhook.getSelectedWebhookOptions() != null &&
                 !webhook.getSelectedWebhookOptions().isEmpty()
                 && (webhook.getSelectedWebhookOptions()
                         .contains(CustomWebhook.WebhookOptions.TESTING_RUN_RESULTS)
                         || webhook.getSelectedWebhookOptions()
-                                .contains(CustomWebhook.WebhookOptions.TRAFFIC_ALERTS))) {
+                                .contains(CustomWebhook.WebhookOptions.TRAFFIC_ALERTS)
+            || webhook.getSelectedWebhookOptions()
+                .contains(WebhookOptions.PENDING_TESTS_ALERTS))) {
             return;
         }
 
@@ -1627,7 +1638,7 @@ public class InitializerListener implements ServletContextListener {
         EndpointLogicalGroupDao.instance.insertOne(endpointLogicalGroup);
         AuthWithCond authWithCond = new AuthWithCond(authMechanism, new HashMap<>(), null);
         List<AuthWithCond> authWithCondList = Collections.singletonList(authWithCond);
-        TestRoles testRoles = new TestRoles(new ObjectId(), "ATTACKER_TOKEN_ALL", endpointLogicalGroup.getId(), authWithCondList, "System", createdTs, createdTs, null);
+        TestRoles testRoles = new TestRoles(new ObjectId(), "ATTACKER_TOKEN_ALL", endpointLogicalGroup.getId(), authWithCondList, "System", createdTs, createdTs, null, "System");
         TestRolesDao.instance.insertOne(testRoles);
         return testRoles;
     }
@@ -1678,8 +1689,10 @@ public class InitializerListener implements ServletContextListener {
 
     public static void createUnauthenticatedApiGroup() {
 
-        if (ApiCollectionsDao.instance.findOne(
-                Filters.eq("_id", UnauthenticatedEndpoint.UNAUTHENTICATED_GROUP_ID)) == null) {
+        ApiCollection collection = ApiCollectionsDao.instance.findOne(
+                Filters.eq("_id", UnauthenticatedEndpoint.UNAUTHENTICATED_GROUP_ID));
+
+        if (collection == null) {
             logger.debugAndAddToDb("AccountId: " + Context.accountId.get() + " Creating unauthenticated api group.", LogDb.DASHBOARD);
             ApiCollection unauthenticatedApisGroup = new ApiCollection(UnauthenticatedEndpoint.UNAUTHENTICATED_GROUP_ID,
                     "Unauthenticated APIs", Context.now(), new HashSet<>(), null, 0, false, false);
@@ -1691,13 +1704,16 @@ public class InitializerListener implements ServletContextListener {
             unauthenticatedApisGroup.setConditions(conditions);
 
             ApiCollectionsDao.instance.insertOne(unauthenticatedApisGroup);
+        }else{
+            ApiCollectionUsers.computeCollectionsForCollectionId(collection.getConditions(), collection.getId());
         }
 
     }
 
     public static void createAllApisGroup() {
-        if (ApiCollectionsDao.instance
-                .findOne(Filters.eq("_id", 111111121)) == null) {
+        ApiCollection collection = ApiCollectionsDao.instance
+                .findOne(Filters.eq("_id", 111111121));
+        if (collection == null) {
             logger.debugAndAddToDb("AccountId: " + Context.accountId.get() + " Creating all apis group.", LogDb.DASHBOARD);
             ApiCollection allApisGroup = new ApiCollection(111_111_121, "All Apis", Context.now(), new HashSet<>(),
                     null, 0, false, false);
@@ -1709,6 +1725,8 @@ public class InitializerListener implements ServletContextListener {
             allApisGroup.setConditions(conditions);
 
             ApiCollectionsDao.instance.insertOne(allApisGroup);
+        }else{
+            ApiCollectionUsers.computeCollectionsForCollectionId(collection.getConditions(), collection.getId());
         }
 
     }
@@ -2435,41 +2453,43 @@ public class InitializerListener implements ServletContextListener {
                         }
                     }, "context-initializer-secondary");
 
-                    crons.trafficAlertsScheduler();
-                    // crons.insertHistoricalDataJob();
-                    // if(DashboardMode.isOnPremDeployment()){
-                    //     crons.insertHistoricalDataJobForOnPrem();
-                    // }
+                    updateApiGroupsForAccounts(); 
                     if (DashboardMode.isMetered()) {
                         setupUsageScheduler();
                     }
-                    // trimCappedCollectionsJob();
-                    setUpPiiAndTestSourcesScheduler();
-                    setUpTrafficAlertScheduler();
-                    // setUpAktoMixpanelEndpointsScheduler();
-                    setUpDailyScheduler();
-                    setUpWebhookScheduler();
-                    cleanInventoryJobRunner();
-                    setUpDefaultPayloadRemover();
-                    setUpTestEditorTemplatesScheduler();
-                    setUpDependencyFlowScheduler();
-                    tokenGeneratorCron.tokenGeneratorScheduler();
-                    crons.deleteTestRunsScheduler();
                     updateSensitiveInfoInApiInfo.setUpSensitiveMapInApiInfoScheduler();
                     syncCronInfo.setUpUpdateCronScheduler();
-                    updateApiGroupsForAccounts();
-                    setUpUpdateCustomCollections();
-                    setUpFillCollectionIdArrayJob();
+                    setUpTestEditorTemplatesScheduler();
+                    setUpWebhookScheduler();
                     setupAutomatedApiGroupsScheduler();
-                    /*
-                     * This is a temporary job.
-                     * TODO: Remove this once traffic pipeline is cleaned.
-                     */
-                    CleanInventory.cleanInventoryJobRunner();
-                    // CleanTestingJob.cleanTestingJobRunner();
-
-                    MatchingJob.MatchingJobRunner();
                     JobsCron.instance.jobsScheduler(JobExecutorType.DASHBOARD);
+
+                    if(runJobFunctionsAnyway) {
+                        crons.trafficAlertsScheduler();
+                        // crons.insertHistoricalDataJob();
+                        // if(DashboardMode.isOnPremDeployment()){
+                        //     crons.insertHistoricalDataJobForOnPrem();
+                        // }
+
+                        // trimCappedCollectionsJob();
+                        setUpPiiAndTestSourcesScheduler();
+                        setUpTrafficAlertScheduler();
+                        // setUpAktoMixpanelEndpointsScheduler();
+                        setUpDailyScheduler();
+                        
+                        cleanInventoryJobRunner();
+                        setUpDefaultPayloadRemover();
+                        setUpDependencyFlowScheduler();
+                        tokenGeneratorCron.tokenGeneratorScheduler();
+                        crons.deleteTestRunsScheduler();
+                        setUpUpdateCustomCollections();
+                        setUpFillCollectionIdArrayJob();
+                                               
+
+                        CleanInventory.cleanInventoryJobRunner();
+
+                        MatchingJob.MatchingJobRunner();
+                    }
 
                     int now2 = Context.now();
                     int diffNow = now2 - now;
@@ -2571,6 +2591,7 @@ public class InitializerListener implements ServletContextListener {
         clear(LogsDao.instance, LogsDao.maxDocuments);
         clear(PupeteerLogsDao.instance, PupeteerLogsDao.maxDocuments);
         clear(DashboardLogsDao.instance, DashboardLogsDao.maxDocuments);
+        clear(DataIngestionLogsDao.instance, DataIngestionLogsDao.maxDocuments);
         clear(TrafficMetricsDao.instance, TrafficMetricsDao.maxDocuments);
         clear(AnalyserLogsDao.instance, AnalyserLogsDao.maxDocuments);
         clear(ActivitiesDao.instance, ActivitiesDao.maxDocuments);
@@ -2583,6 +2604,7 @@ public class InitializerListener implements ServletContextListener {
         clear(SuspectSampleDataDao.instance, SuspectSampleDataDao.maxDocuments);
         clear(RuntimeMetricsDao.instance, RuntimeMetricsDao.maxDocuments);
         clear(ProtectionLogsDao.instance, ProtectionLogsDao.maxDocuments);
+        clear(MetricDataDao.instance, MetricDataDao.maxDocuments);
     }
 
     public static void clear(AccountsContextDao mCollection, int maxDocuments) {
@@ -2733,6 +2755,8 @@ public class InitializerListener implements ServletContextListener {
             String hotjarSiteId = organization.getHotjarSiteId();
             String planType = organization.getplanType();
             String trialMsg = organization.gettrialMsg();
+            String protectionTrialMsg = organization.getprotectionTrialMsg();
+            String agentTrialMsg = organization.getagentTrialMsg();
             String organizationId = organization.getId();
             /*
              * This ensures, we don't fetch feature wise allowed from akto too often.
@@ -2799,6 +2823,8 @@ public class InitializerListener implements ServletContextListener {
             hotjarSiteId = OrganizationUtils.fetchHotjarSiteId(metaData);
             planType = OrganizationUtils.fetchplanType(metaData);
             trialMsg = OrganizationUtils.fetchtrialMsg(metaData);
+            protectionTrialMsg = OrganizationUtils.fetchprotectionTrialMsg(metaData);
+            agentTrialMsg = OrganizationUtils.fetchagentTrialMsg(metaData);
             boolean expired = OrganizationUtils.fetchExpired(metaData);
             if (DashboardMode.isOnPremDeployment()) {
                 boolean telemetryEnabled = OrganizationUtils.fetchTelemetryEnabled(metaData);
@@ -2814,6 +2840,10 @@ public class InitializerListener implements ServletContextListener {
             organization.setplanType(planType);
 
             organization.settrialMsg(trialMsg);
+
+            organization.setprotectionTrialMsg(protectionTrialMsg);
+
+            organization.setagentTrialMsg(agentTrialMsg);
 
             organization.setGracePeriod(gracePeriod);
             organization.setFeatureWiseAllowed(featureWiseAllowed);
@@ -2838,6 +2868,8 @@ public class InitializerListener implements ServletContextListener {
                             Updates.set(Organization.HOTJAR_SITE_ID, hotjarSiteId),
                             Updates.set(Organization.PLAN_TYPE, planType),
                             Updates.set(Organization.TRIAL_MSG, trialMsg),
+                            Updates.set(Organization.AGENTTRIAL_MSG, agentTrialMsg),
+                            Updates.set(Organization.PROTECTIONTRIAL_MSG, protectionTrialMsg),
                             Updates.set(Organization.TEST_TELEMETRY_ENABLED, testTelemetryEnabled),
                             Updates.set(Organization.LAST_FEATURE_MAP_UPDATE, lastFeatureMapUpdate)));
 
@@ -2918,11 +2950,12 @@ public class InitializerListener implements ServletContextListener {
 
         long count = ApiInfoDao.instance.count(Filters.exists(ApiInfo.DISCOVERED_TIMESTAMP, false));
         if (count == 0) {
-            logger.debugAndAddToDb("No need to backFillDiscovered");
+            logger.warnAndAddToDb("No need to backFillDiscovered for accountId: " + Context.accountId.get());
             return;
         }
 
-        logger.debugAndAddToDb("Running back fill discovered");
+        logger.warnAndAddToDb("Running back fill discovered for accountId: "  + Context.accountId.get());
+        int startTime = Context.now();
 
         List<SingleTypeInfo> singleTypeInfos = new ArrayList<>();
         ObjectId id = null;
@@ -2969,21 +3002,22 @@ public class InitializerListener implements ServletContextListener {
 
         } while (!singleTypeInfos.isEmpty());
 
-        logger.debugAndAddToDb("Finished running back fill discovered");
+        logger.warnAndAddToDb("Finished running back fill discovered for accountId: "  + Context.accountId.get() + " in: " + (Context.now() - startTime) + " seconds");
     }
 
     private static void backFillStatusCodeType() {
         long count = ApiInfoDao.instance.count(Filters.exists(ApiInfo.API_TYPE, false));
         if (count == 0) {
-            logger.debugAndAddToDb("No need to run backFillStatusCodeType");
+            logger.warnAndAddToDb("No need to run backFillStatusCodeType");
             return;
         }
 
-        logger.debugAndAddToDb("Running backFillStatusCodeType");
+        logger.warnAndAddToDb("Running backFillStatusCodeType for accountId: " + Context.accountId.get());
 
         List<SampleData> sampleDataList = new ArrayList<>();
         Bson sort = Sorts.ascending("_id.apiCollectionId", "_id.url", "_id.method");
         int skip = 0;
+        int startTime = Context.now();
         do {
             sampleDataList = SampleDataDao.instance.findAll(Filters.empty(), skip, 100, sort);
             skip += sampleDataList.size();
@@ -3033,7 +3067,7 @@ public class InitializerListener implements ServletContextListener {
 
         } while (!sampleDataList.isEmpty());
 
-        logger.debugAndAddToDb("Finished running backFillStatusCodeType");
+        logger.warnAndAddToDb("Finished running backFillStatusCodeType for accountId: " + Context.accountId.get() + " in: " + (Context.now() - startTime) + " seconds");
     }
 
     private static void dropLastCronRunInfoField(BackwardCompatibility backwardCompatibility){
@@ -3271,6 +3305,7 @@ public class InitializerListener implements ServletContextListener {
         }
     }
 
+
     public static void setBackwardCompatibilities(BackwardCompatibility backwardCompatibility){
         if (DashboardMode.isMetered()) {
             initializeOrganizationAccountBelongsTo(backwardCompatibility);
@@ -3326,8 +3361,7 @@ public class InitializerListener implements ServletContextListener {
     }
 
     public void runInitializerFunctions() {
-         DaoInit.createIndices();
-
+        DaoInit.createIndices();
 
         BackwardCompatibility backwardCompatibility = BackwardCompatibilityDao.instance.findOne(new BasicDBObject());
         if (backwardCompatibility == null) {
@@ -3338,17 +3372,17 @@ public class InitializerListener implements ServletContextListener {
         // backward compatibility
         try {
             setBackwardCompatibilities(backwardCompatibility);
-            logger.debugAndAddToDb("Backward compatibilities set for " + Context.accountId.get(), LogDb.DASHBOARD);
+            logger.infoAndAddToDb("Backward compatibilities set for " + Context.accountId.get(), LogDb.DASHBOARD);
             insertPiiSources();
-            logger.debugAndAddToDb("PII sources inserted set for " + Context.accountId.get(), LogDb.DASHBOARD);
+            logger.infoAndAddToDb("PII sources inserted set for " + Context.accountId.get(), LogDb.DASHBOARD);
 
 //            setUpPiiCleanerScheduler();
 //            setUpDailyScheduler();
 //            setUpWebhookScheduler();
 //            setUpPiiAndTestSourcesScheduler();
 
-            AccountSettings accountSettings = AccountSettingsDao.instance.findOne(AccountSettingsDao.generateFilter());
-            dropSampleDataIfEarlierNotDroped(accountSettings);
+            // AccountSettings accountSettings = AccountSettingsDao.instance.findOne(AccountSettingsDao.generateFilter());
+            // dropSampleDataIfEarlierNotDroped(accountSettings);
 
             backFillDiscovered();
             backFillStatusCodeType();
@@ -3452,17 +3486,17 @@ public class InitializerListener implements ServletContextListener {
                     
                 } catch (Exception e) {
                     e.printStackTrace();
-                    logger.debugAndAddToDb("Unable to import remediations", LogDb.DASHBOARD);
+                    logger.errorAndAddToDb("Unable to import remediations", LogDb.DASHBOARD);
                 }
                 Map<String, ComplianceInfo> complianceCommonMap = getFromCommonDb();
                 Map<String, byte[]> allYamlTemplates = TestTemplateUtils.getZipFromMultipleRepoAndBranch(getAktoDefaultTestLibs());
                 AccountTask.instance.executeTask((account) -> {
                     try {
-                        logger.debugAndAddToDb("Updating Test Editor Templates for accountId: " + account.getId(), LogDb.DASHBOARD);
+                        logger.infoAndAddToDb("Updating Test Editor Templates for accountId: " + account.getId(), LogDb.DASHBOARD);
                         processTemplateFilesZip(testingTemplates, Constants._AKTO, YamlTemplateSource.AKTO_TEMPLATES.toString(), "");
                         if (!DashboardMode.isMetered()) return;
 
-                        logger.debugAndAddToDb("Updating Pro and Standard Templates for accountId: " + account.getId(), LogDb.DASHBOARD);
+                        logger.infoAndAddToDb("Updating Pro and Standard Templates for accountId: " + account.getId(), LogDb.DASHBOARD);
                         
                         AccountSettings accountSettings = AccountSettingsDao.instance.findOne(AccountSettingsDao.generateFilter());
 
@@ -3801,7 +3835,7 @@ public class InitializerListener implements ServletContextListener {
                                     }
                                     continue;
                                 } else {
-                                    logger.debugAndAddToDb("Updating test yaml: " + testConfigId, LogDb.DASHBOARD);
+                                    logger.infoAndAddToDb("Updating test yaml: " + testConfigId, LogDb.DASHBOARD);
                                 }
                             }
 

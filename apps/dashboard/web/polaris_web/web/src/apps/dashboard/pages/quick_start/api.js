@@ -25,18 +25,18 @@ const api = {
         })
     },
 
-    importDataFromPostmanFile(postmanCollectionFile, allowReplay) {
+    importDataFromPostmanFile(postmanCollectionFile, allowReplay, miniTestingName) {
         return request({
             url: '/api/importDataFromPostmanFile',
             method: 'post',
-            data: {postmanCollectionFile, allowReplay}
+            data: {postmanCollectionFile, allowReplay, miniTestingName}
         })
     },
-    importPostmanWorkspace(workspace_id, allowReplay, api_key) {
+    importPostmanWorkspace(workspace_id, allowReplay, api_key, miniTestingName) {
         return request({
             url: '/api/importPostmanWorkspace',
             method: 'post',
-            data: {workspace_id, allowReplay, api_key}
+            data: {workspace_id, allowReplay, api_key, miniTestingName}
         })
     },
 
@@ -130,11 +130,11 @@ const api = {
         })
     },
 
-    fetchRuntimeHelmCommand() {
+    fetchRuntimeHelmCommand(expiryTimeInMonth) {
         return request({
             url: '/api/fetchRuntimeHelmCommand',
             method: 'post',
-            data: {}
+            data: {expiryTimeInMonth}
         })
     },
 

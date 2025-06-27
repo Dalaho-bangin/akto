@@ -91,6 +91,12 @@ let filtersOptions = [
                 value:false
             }],
         singleSelect:true
+    },
+    {
+        key: 'tagsId',
+        label: 'Tags',
+        title: 'Tags',
+        choices: [],
     }
 ]
 
@@ -183,6 +189,8 @@ function IssuesPage() {
     const endTimestamp = getTimeEpoch("until")
 
     const hostNameMap = PersistStore.getState().hostNameMap
+    const tagsCollectionsMap = PersistStore.getState().tagCollectionsMap
+
 
     const setToastConfig = Store(state => state.setToastConfig)
     const setToast = (isActive, isError, message) => {
@@ -259,6 +267,16 @@ function IssuesPage() {
     ]
 
     filtersOptions = func.getCollectionFilters(filtersOptions)
+
+    const tagsFilter = filtersOptions.find(filter => filter.key === 'tagsId');
+        if (tagsFilter) {
+            tagsFilter.choices = Object.keys(tagsCollectionsMap).map((key) => {
+                return {
+                    label: key,
+                    value: key
+                }
+            });
+        }
 
     const handleSaveJiraAction = () => {
         setToast(true, false, "Please wait while we create your Jira ticket.")
@@ -421,6 +439,8 @@ function IssuesPage() {
             case "collectionIds":
             case "apiCollectionId":
                 return func.convertToDisambiguateLabelObj(value, apiCollectionMap, 2)
+            case "tagsId":
+                return func.convertToDisambiguateLabelObj(value, null, 2)
             case "activeCollections":
                 if(value[0]){
                     return "Active collections only"
@@ -480,6 +500,9 @@ function IssuesPage() {
             filterSubCategory = filterSubCategory.concat(categoryToSubCategories[issue])
         })
         filterSubCategory = [...filterSubCategory, ...filters?.issueName]
+        const selectedTagsCollectionId = filters.tagsId || []
+        const tagCollectionIds = selectedTagsCollectionId.map((tag) => tagsCollectionsMap[tag]).flat()
+        filterCollectionsId = filterCollectionsId.concat(tagCollectionIds)
         const collectionIdsArray = filterCollectionsId.map((x) => {return x.toString()})
 
         let obj = {
@@ -579,13 +602,10 @@ function IssuesPage() {
         if(filters?.issueName !== undefined && filters?.issueName.length > 0){
             filterSubCategory = filterSubCategory.concat(filters?.issueName)
         }
-        let issueItem = []
+        let issueItems = []
 
         await api.fetchIssues(0, 20000, filterStatus, filterCollectionsId, filterSeverity, filterSubCategory, "severity", -1, startTimestamp, endTimestamp, activeCollections, filterCompliance).then((issuesDataRes) => {
-            const uniqueIssuesMap = new Map()
-            issuesDataRes.issues.forEach(item => {
-                const key = `${item?.id?.testSubCategory}|${item?.severity}|${item?.unread.toString()}`
-                if (!uniqueIssuesMap.has(key)){
+            issuesDataRes.issues.forEach((item) => {
                     const issue = {
                         id: item?.id,
                         severityVal: func.toSentenceCase(item?.severity),
@@ -596,26 +616,15 @@ function IssuesPage() {
                         creationTime: func.prettifyEpoch(item?.creationTime),
                         issueStatus: item?.unread.toString() === 'false' ? "read" : "unread",
                         domainVal:[(hostNameMap[item?.id?.apiInfoKey?.apiCollectionId] !== null ? hostNameMap[item?.id?.apiInfoKey?.apiCollectionId] : apiCollectionMap[item?.id?.apiInfoKey?.apiCollectionId])],
-                        urls:[`${item?.id?.apiInfoKey?.method} ${item?.id?.apiInfoKey?.url}`]
+                        url:`${item?.id?.apiInfoKey?.method} ${item?.id?.apiInfoKey?.url}`
                     }
-                    uniqueIssuesMap.set(key, issue)
-                }
-                else {
-                    const existingIssue = uniqueIssuesMap.get(key)
-                    const domain = (hostNameMap[item?.id?.apiInfoKey?.apiCollectionId] !== null ? hostNameMap[item?.id?.apiInfoKey?.apiCollectionId] : apiCollectionMap[item?.id?.apiInfoKey?.apiCollectionId])
-                    if (!existingIssue.domainVal.includes(domain)) {
-                        existingIssue.domainVal.push(domain)
-                    }
-                    existingIssue.urls.push(`${item?.id?.apiInfoKey?.method} ${item?.id?.apiInfoKey?.url}`)
-                    existingIssue.numberOfEndpoints += 1
-                }
-            })
-            issueItem = Array.from(uniqueIssuesMap.values())
-            
+                    issueItems.push(issue)
+                })
+
         }).catch((e) => {
             func.setToast(true, true, e.message)
         })
-        return issueItem;
+        return issueItems;
 
     }
     
@@ -629,7 +638,7 @@ function IssuesPage() {
                     .map(x => [x.text, x.textValue ? x.textValue : x.value])
                     .filter(x => x[0]?.length > 0)
             ),
-            URLs: "urls"
+            URL: "url"
         };
 
 

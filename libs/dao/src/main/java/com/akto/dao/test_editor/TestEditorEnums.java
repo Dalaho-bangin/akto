@@ -9,6 +9,7 @@ public class TestEditorEnums {
         NOT_CONTAINS,
         NOT_CONTAINS_EITHER,
         NOT_CONTAINS_CIDR,
+        CONFORM_SCHEMA,
         REGEX,
         EQ,
         EQ_OBJ,
@@ -241,7 +242,8 @@ public class TestEditorEnums {
         TEST_NAME,
         LABEL,
         SUCCESS,
-        FAILURE
+        FAILURE,
+        WAIT
     }
 
     public enum ValidateExecutorDataOperands {

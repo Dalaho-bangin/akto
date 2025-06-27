@@ -311,6 +311,7 @@ const transform = {
       obj['userEmail'] = data.userEmail
       obj['scan_frequency'] = getScanFrequency(data.periodInSeconds)
       obj['total_apis'] = testingRunResultSummary.totalApis
+      obj['miniTestingServiceName'] = data?.miniTestingServiceName
       if(prettified){
         
         const prettifiedTest={
@@ -830,18 +831,30 @@ getCollapsibleRow(urls, severity) {
           {urls.map((ele,index)=>{
             const borderStyle = index < (urls.length - 1) ? {borderBlockEndWidth : 1} : {}
             return(
-              <Box padding={"2"} paddingInlineStart={"4"} key={index}
-                  borderColor="border-subdued" {...borderStyle}
-                  width="100%"
+              <Box
+                padding={"2"}
+                paddingInlineStart={"4"}
+                key={index}
+                borderColor="border-subdued"
+                {...borderStyle}
+                width="100%"
               >
-                <HorizontalStack gap="2" align="start" blockAlign="center">
-                  <IssuesCheckbox
-                    id={ele.testRunResultsId}
-                  />
-                  <Link monochrome onClick={() => history.navigate(ele.nextUrl)} removeUnderline >
-                    {transform.getUrlComp(ele.url)}
-                  </Link>
-                </HorizontalStack>
+                <div style={{ display: "flex", alignItems: "center", width: "100%" }}>
+                  <HorizontalStack gap="2" align="start" blockAlign="center">
+                    <IssuesCheckbox id={ele.testRunResultsId} />
+                    <Link monochrome onClick={() => history.navigate(ele.nextUrl)} removeUnderline>
+                      {transform.getUrlComp(ele.url)}
+                    </Link>
+                  </HorizontalStack>
+                  <div style={{ marginLeft: "auto" }}>
+                    <Text color="subdued" fontWeight="semibold">
+                    {ele.statusCode  || "-"}
+                    {/* add a tooltip to show the response body */}
+                    {/* handle the case where the response body is null */}
+                    {ele.responseBody ? <TooltipText tooltip={ele.responseBody} text={ele.responseBody} /> : "-"}
+                    </Text>
+                  </div>
+                </div>
               </Box>
             )
           })}
@@ -890,26 +903,42 @@ getPrettifiedTestRunResults(testRunResults){
       }
     }
 
+    const listOfTestResults = test.testResults
+    let statusCode = null
+    let responseBody = null
+    if (listOfTestResults && listOfTestResults.length > 0){
+      listOfTestResults.forEach((testResult) => {
+        let message = testResult.message
+        if (message) {
+          try {
+            let obj = JSON.parse(message)
+            statusCode = obj?.response?.statusCode
+            responseBody = obj?.response?.body?.slice(0, 50) + "..."
+          } catch (e) {
+          }
+        }
+      })
+    }
     if(testRunResultsObj.hasOwnProperty(key)){
       let endTimestamp = Math.max(test.endTimestamp, testRunResultsObj[key].endTimestamp)
       let urls = testRunResultsObj[key].urls
-      urls.push({url: test.url, nextUrl: test.nextUrl, testRunResultsId: test.id})
+      urls.push({url: test.url, nextUrl: test.nextUrl, testRunResultsId: test.id, statusCode: statusCode, responseBody: responseBody})
       let obj = {
         ...test,
         urls: urls,
         endTimestamp: endTimestamp,
-        errorMessage: error_message
+        errorMessage: error_message,
       }
       delete obj["nextUrl"]
       delete obj["url"]
       delete obj["errorsList"]
       testRunResultsObj[key] = obj
     }else{
-      let urls = [{url: test.url, nextUrl: test.nextUrl, testRunResultsId: test.id}]
+      let urls = [{url: test.url, nextUrl: test.nextUrl, testRunResultsId: test.id, statusCode: statusCode, responseBody: responseBody}]
       let obj={
         ...test,
         urls:urls,
-        errorMessage: error_message
+        errorMessage: error_message,
       }
       delete obj["nextUrl"]
       delete obj["url"]
@@ -1123,9 +1152,7 @@ getActions(item){
   if(item.orderPriority === 1){
     actionsList[1].disabled = true
   }
-  if(item['run_type'] === 'One-time' || item['run_type'] === 'CI/CD'){
-    section1.items.push(actionsList[1])
-  }
+  section1.items.push(actionsList[1])
   if(item['run_type'] !== 'CI/CD'){
     section1.items.push(actionsList[2])
   }
@@ -1226,6 +1253,7 @@ getMissingConfigs(testResults){
       scheduleTimestamp: testRun?.hourlyLabel === 'Now' && ((testRun.startTimestamp - func.getStartOfTodayEpoch()) < 86400) ? 0 : testRun.startTimestamp,
       recurringWeekly: testRun.recurringWeekly,
       recurringMonthly: testRun.recurringMonthly,
+      miniTestingServiceName: testRun.miniTestingServiceName,
       testSuiteIds:testMode? [] : testSuiteIds,
       autoTicketingDetails: autoTicketingDetails,
     }

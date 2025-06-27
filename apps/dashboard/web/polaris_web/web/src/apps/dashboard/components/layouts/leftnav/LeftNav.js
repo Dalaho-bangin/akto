@@ -7,6 +7,7 @@ import {
     DiamondAlertMinor,
     StarFilledMinor,
     FinancesMinor,
+    LockFilledMajor,
 } from "@shopify/polaris-icons";
 import {useLocation, useNavigate} from "react-router-dom";
 
@@ -302,6 +303,21 @@ export default function LeftNav() {
                             selected: leftNavSelected.includes("_reports"),
                             subNavigationItems: reportsSubNavigationItems,
                             key: "6",
+                        },
+                        {
+                            label: (
+                                <Text variant="bodyMd" fontWeight="medium">
+                                    MCP Security
+                                </Text>
+                            ),
+                            icon: LockFilledMajor,
+                            onClick: () => {
+                                handleSelect("dashboard_mcp_security");
+                                navigate("/dashboard/mcp-security");
+                                setActive("normal");
+                            },
+                            selected: leftNavSelected === "dashboard_mcp_security",
+                            key: "mcp_security",
                         },
                         ...(window?.STIGG_FEATURE_WISE_ALLOWED?.THREAT_DETECTION?.isGranted ? [{
                                 label: (

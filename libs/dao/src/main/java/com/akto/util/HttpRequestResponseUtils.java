@@ -37,6 +37,8 @@ public class HttpRequestResponseUtils {
 
     public static final String FORM_URL_ENCODED_CONTENT_TYPE = "application/x-www-form-urlencoded";
     public static final String GRPC_CONTENT_TYPE = "application/grpc";
+    public static final String TEXT_EVENT_STREAM_CONTENT_TYPE = "text/event-stream";
+    public static final String CONTENT_TYPE = "CONTENT-TYPE";
 
     public static List<SingleTypeInfo> generateSTIsFromPayload(int apiCollectionId, String url, String method,String body, int responseCode) {
         int now = Context.now();
@@ -124,7 +126,7 @@ public class HttpRequestResponseUtils {
 
     public static String convertXmlToJson(String rawRequest) {
         try {
-            String removeXmlLine = rawRequest.replaceFirst("<\\?xml.*?\\?>", "").trim();
+            String removeXmlLine = rawRequest.replaceFirst("<\\?xml.*?\\?>", "").replaceAll("<(/?)(\\w+):(\\w+)([^>]*)>", "<$1$3$4>").trim();
             JsonNode rootNode = xmlMapper.readTree(removeXmlLine);
             JsonNode bodyNode = rootNode.get("Body");
             if (bodyNode == null) {
@@ -141,6 +143,7 @@ public class HttpRequestResponseUtils {
     }
 
     public static String updateXmlWithModifiedJson(String originalXml, String modifiedJson) throws Exception {
+        originalXml = originalXml.replaceFirst("<\\?xml.*?\\?>", "").replaceAll("<(/?)(\\w+):(\\w+)([^>]*)>", "<$1$3$4>").trim();
         ObjectMapper objectMapper = new ObjectMapper();
 
         DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
@@ -167,6 +170,10 @@ public class HttpRequestResponseUtils {
             while (targetElement.hasChildNodes()) {
                 targetElement.removeChild(targetElement.getFirstChild());
             }
+        }
+
+        if (modifiedJson != null && modifiedJson.startsWith("<")) {
+            return modifiedJson;
         }
 
         JsonNode modifiedBody = objectMapper.readTree(modifiedJson);
