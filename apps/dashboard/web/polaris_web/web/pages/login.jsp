@@ -6,6 +6,7 @@
 
             <head>
                 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+                <meta name="referrer" content="same-origin" />
                 <meta name="theme-color" content="#6200EA" />
 
                 <title>Akto</title>
