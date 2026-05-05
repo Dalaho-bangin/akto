@@ -20,7 +20,7 @@ import { isEndpointSecurityCategory } from "../../../main/labelHelper";
 import AuditDataDrawer from "./AuditDataDrawer";
 import CollectionIcon from "../../components/shared/CollectionIcon";
 import settingsApi from "../settings/api";
-import { intersectServerActionFlags } from "./auditServerActionFlags";
+import { intersectServerActionFlags, getRegistryOverride } from "./auditServerActionFlags";
 import "../../components/shared/style.css";
 
 const headingsEndpointSecurity = [
@@ -680,6 +680,13 @@ function AuditData() {
                         collectionName,
                         collectionRegistryStatus
                     )
+                    const override = getRegistryOverride(dataObj, registryConfigured);
+                    if (override) {
+                        dataObj.markedBy = override.markedBy;
+                        dataObj.remarksComp = (
+                            <Text variant="bodyMd" color="critical">{override.remarks}</Text>
+                        );
+                    }
                     ret.push(dataObj);
                     endpointRowCacheRef.current[String(dataObj.hexId || dataObj.id)] = dataObj;
                 })
@@ -758,7 +765,7 @@ function AuditData() {
             primaryAction={primaryActions}
             components = {[
                 <GithubServerTable
-                        key={startTimestamp + endTimestamp + (isEndpointSecurity ? filterVersion : filtersDefault[1].choices.length + filtersDefault[3].choices.length) + String(isEndpointSecurity)}
+                        key={startTimestamp + endTimestamp + (isEndpointSecurity ? filterVersion : filtersDefault[1].choices.length + filtersDefault[3].choices.length) + String(isEndpointSecurity) + String(registryConfigured)}
                         headers={headings}
                         resourceName={resourceName}
                         appliedFilters={[]}
