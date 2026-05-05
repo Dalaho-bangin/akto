@@ -301,7 +301,7 @@ const convertDataIntoTableFormat = (auditRecord, collectionName, collectionRegis
         (temp?.remarks === null || temp?.remarks === "" || !temp?.remarks) ?
             <HorizontalStack gap="1" blockAlign="center">
                 <Text variant="bodyMd">Approved</Text>
-                <Tooltip content="Pending on user for confirmation">
+                <Tooltip content="Audit Pending">
                     <Icon source={ClockMinor} color="warning" />
                 </Tooltip>
             </HorizontalStack> :
