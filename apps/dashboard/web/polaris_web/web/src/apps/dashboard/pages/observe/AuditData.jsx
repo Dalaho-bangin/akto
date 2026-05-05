@@ -1,6 +1,6 @@
 
-import { Text, HorizontalStack, VerticalStack, Box, Icon } from "@shopify/polaris"
-import { CircleTickMajor, CircleCancelMajor, SettingsMajor } from "@shopify/polaris-icons";
+import { Text, HorizontalStack, VerticalStack, Box, Icon, Tooltip } from "@shopify/polaris"
+import { CircleTickMajor, CircleCancelMajor, SettingsMajor, ClockMinor } from "@shopify/polaris-icons";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react"
 import values from "@/util/values";
 import {produce} from "immer"
@@ -298,8 +298,13 @@ const convertDataIntoTableFormat = (auditRecord, collectionName, collectionRegis
         });
     })() : null
     temp['remarksComp'] = (
-        (temp?.remarks === null || temp?.remarks === "" || !temp?.remarks) ? 
-            <Text variant="bodyMd">Approved</Text> : 
+        (temp?.remarks === null || temp?.remarks === "" || !temp?.remarks) ?
+            <HorizontalStack gap="1" blockAlign="center">
+                <Text variant="bodyMd">Approved</Text>
+                <Tooltip content="Pending on user for confirmation">
+                    <Icon source={ClockMinor} color="warning" />
+                </Tooltip>
+            </HorizontalStack> :
             <VerticalStack gap="1">
                 <Text variant="bodyMd">{temp?.remarks}</Text>
                 {temp?.approvalConditions && (
