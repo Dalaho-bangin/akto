@@ -3,9 +3,15 @@ package com.akto.dto.monitoring;
 import java.util.Map;
 import java.util.UUID;
 
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder(toBuilder = true)
 public class ModuleInfo {
 
     public static final String MODULE_TYPE = "moduleType";
@@ -34,21 +40,6 @@ public class ModuleInfo {
 
     @Getter @Setter
     private String miniRuntimeName;
-
-    public ModuleInfo() {}
-
-    public ModuleInfo(ModuleInfo other) {
-        this.moduleType = other.moduleType;
-        this.currentVersion = other.currentVersion;
-        this.id = other.id;
-        this.startedTs = other.startedTs;
-        this.lastHeartbeatReceived = other.lastHeartbeatReceived;
-        this.name = other.name;
-        this.miniRuntimeName = other.miniRuntimeName;
-        this.reboot = other.reboot;
-        this.deleteTopicAndReboot = other.deleteTopicAndReboot;
-        // additionalData intentionally excluded to reduce the size of object stored in MetricData
-    }
 
     public ModuleType getModuleType() {
         return moduleType;
